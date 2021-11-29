@@ -1,0 +1,37 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel ParticleMain
+
+struct Particle{
+    float3 position;
+    float3 velocity;
+};
+
+
+float deltat;
+// // Create a RenderTexture with enableRandomWrite flag and set it
+// // with cs.SetTexture
+// RWTexture2D<float4>;
+RWStructuredBuffer<Particle> particles;
+
+[numthreads(10,1,1)]
+
+void ParticleMain (uint gid : SV_GroupIndex, uint3 dispatch_id : SV_DispatchThreadID)
+{
+    int id = dispatch_id.x;
+    // float deltat = 1.f/60;
+    //uint instance_id = SV_GroupIndex();
+    // TODO: insert actual code here!
+    // Result[id.xy] = float4(id.x & id.y, (id.x & 15)/15.0, (id.y & 15)/15.0, 0.0);
+    particles[id].position += deltat * particles[id].velocity;
+
+    float bounds = 2.5f;
+    if(particles[id].position.x > bounds || particles[id].position.x < -bounds){
+        particles[id].velocity.x = -particles[id].velocity.x;
+    }
+    if(particles[id].position.y > bounds || particles[id].position.y < -bounds){
+        particles[id].velocity.y = -particles[id].velocity.y;
+    }
+    if(particles[id].position.z > bounds || particles[id].position.z < -bounds){
+        particles[id].velocity.z = -particles[id].velocity.z;
+    }
+}
