@@ -9,8 +9,8 @@ ScreenFillingQuad::ScreenFillingQuad(std::shared_ptr<State> state)
     m_state = state;
     m_quad = std::make_unique<Quad>();
 
-    m_fragmentShader = std::make_shared<Shader>("./Shader/DrawFBO.frag");
-    m_drawFBOShader = std::make_shared<Shader>("./Shader/DrawFBO.vert");
+    m_fragmentShader = std::make_shared<Shader>(std::string(SHADERPATH) + "/DrawFBO.frag");
+    m_drawFBOShader = std::make_shared<Shader>(std::string(SHADERPATH) + "/DrawFBO.vert");
     m_shaderProgram = std::make_shared<ShaderProgram>("DrawFBO");
     m_shaderProgram->addShader(m_fragmentShader);
     m_shaderProgram->addShader(m_drawFBOShader);

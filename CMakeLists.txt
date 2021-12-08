@@ -11,7 +11,16 @@ set(LIB_DIR Include)
 # use PACKAGE_ROOT variables
 cmake_policy(SET CMP0074 NEW)
 
-find_package(GLFW3 REQUIRED)
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+
+
+add_subdirectory(Dependencies/glfw)
+
+# target_link_libraries(${PROJECT_NAME} glfw)
+
+# find_package(GLFW3 REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(GLM REQUIRED)
 
@@ -69,7 +78,8 @@ target_link_libraries(${PROJECT_NAME} "glad" "${CMAKE_DL_LIBS}")
 target_link_libraries(
         ${PROJECT_NAME}
         ${OpenGL3_LIBRARIES}
-        GLFW3::glfw3
+       #  GLFW3::glfw3
+        glfw
         GLM::glm
         opengl32
         glad
@@ -77,3 +87,5 @@ target_link_libraries(
 
 # prevent console from opening
 #list(APPEND CMAKE_CXX_FLAGS "-mwindows")
+
+add_compile_definitions(${PROJECT_NAME} PRIVATE  "SHADERPATH=\"${CMAKE_CURRENT_LIST_DIR}/Source/Shader\"")

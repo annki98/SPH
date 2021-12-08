@@ -1,4 +1,5 @@
 #include <iostream>
+#include <filesystem>
 #include "Engine/Defs.h"
 #include "Objects/Triangle.h"
 #include "Engine/Camera.h"
@@ -164,8 +165,10 @@ int main()
 
     std::unique_ptr<Triangle> triangle = std::make_unique<Triangle>();
 
-    std::shared_ptr<Shader> basicVertexShader = std::make_shared<Shader>("./Shader/Basic.vert");
-    std::shared_ptr<Shader> basicFragmentShader = std::make_shared<Shader>("./Shader/Basic.frag");
+
+
+    std::shared_ptr<Shader> basicVertexShader = std::make_shared<Shader>(std::string(SHADERPATH) + "/Basic.vert");
+    std::shared_ptr<Shader> basicFragmentShader = std::make_shared<Shader>(std::string(SHADERPATH) + "/Basic.frag");
 
     std::unique_ptr<ShaderProgram> basicShaderProgram = std::make_unique<ShaderProgram>("Basic");
     basicShaderProgram->addShader(basicVertexShader);
