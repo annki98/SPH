@@ -1,15 +1,39 @@
-project(SPH)
 cmake_minimum_required(VERSION 3.3)
+
+
+project(SPH CUDA CXX C)
+cmake_policy(SET CMP0074 NEW)
+
+# CUDA
+
+include(CMakePrintHelpers)
+
+cmake_print_variables(CMAKE_CUDA_COMPILER_VERSION)
+
+set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CXX_STANDARD 17)
+
+
+# IMPORTANT: edit arch and code according to the graphics card you have
+# see for example Here: https://gt3rs.medium.com/compile-with-nvcc-3566fbdfdbf
+set(COMPUTE_CAPABILITY -gencode arch=compute_75,code=sm_75)
+set(CUDA_OPTIONS -lineinfo ${COMPUTE_CAPABILITY})
+
+message(${CUDA_OPTIONS})
+
+add_subdirectory(Source/CudaTest)
+
+# OPENGL/GLFW/GLM
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 
-set(CMAKE_CXX_STANDARD 17)
+
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(LIB_DIR Include)
 
 # use PACKAGE_ROOT variables
-cmake_policy(SET CMP0074 NEW)
+# cmake_policy(SET CMP0074 NEW)
 
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -24,6 +48,7 @@ add_subdirectory(Dependencies/glfw)
 find_package(OpenGL REQUIRED)
 find_package(GLM REQUIRED)
 
+cmake_policy(SET CMP0104 OLD)
 aux_source_directory(. SRC_LIST)
 add_executable(${PROJECT_NAME}
         Include/imgui/imconfig.h
@@ -43,7 +68,7 @@ add_executable(${PROJECT_NAME}
         Include/imgui/imstb_textedit.h
         Include/imgui/imstb_truetype.h
         Source/Engine/Defs.h
-        Source/main.cpp
+        Source/main.cu
         ${SRC_LIST}
         Source/Objects/Triangle.cpp
         Source/Objects/Triangle.h
@@ -65,6 +90,9 @@ add_executable(${PROJECT_NAME}
         Source/Objects/Quad.h
         Source/Engine/State.cpp
         )
+
+target_compile_options(CudaTest PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${CUDA_OPTIONS}>)
+set_target_properties(CudaTest PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
 target_include_directories(${PROJECT_NAME} PUBLIC ${OPENGL_INCLUDE_DIR} ${GLFW3_INCLUDE_DIR} ${GLM_INCLUDE_PATH} Include)
 
