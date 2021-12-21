@@ -22,7 +22,7 @@ set(CUDA_OPTIONS -lineinfo ${COMPUTE_CAPABILITY})
 message(${CUDA_OPTIONS})
 
 add_subdirectory(Source/CudaTest)
-
+add_subdirectory(Source/CudaGrid)
 
 # OPENGL/GLFW/GLM
 
