@@ -23,6 +23,7 @@ message(${CUDA_OPTIONS})
 
 add_subdirectory(Source/CudaTest)
 
+
 # OPENGL/GLFW/GLM
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
@@ -89,19 +90,22 @@ add_executable(${PROJECT_NAME}
         Source/Objects/Quad.cpp
         Source/Objects/Quad.h
         Source/Engine/State.cpp
+        Source/sph_naive.cu
         )
 
-target_compile_options(CudaTest PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${CUDA_OPTIONS}>)
-set_target_properties(CudaTest PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+# target_compile_options(CudaTest PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${CUDA_OPTIONS}>)
+# set_target_properties(CudaTest PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 
 target_include_directories(${PROJECT_NAME} PUBLIC ${OPENGL_INCLUDE_DIR} ${GLFW3_INCLUDE_DIR} ${GLM_INCLUDE_PATH} Include)
 
 # glad
 set(GLAD_DIR "${LIB_DIR}/glad")
-add_library("glad" "${GLAD_DIR}/src/glad.c")
-target_include_directories("glad" PRIVATE "${GLAD_DIR}/include")
+add_library(glad "${GLAD_DIR}/src/glad.c")
+target_include_directories(glad PRIVATE "${GLAD_DIR}/include")
 target_include_directories(${PROJECT_NAME} PRIVATE "${GLAD_DIR}/include")
-target_link_libraries(${PROJECT_NAME} "glad" "${CMAKE_DL_LIBS}")
+# target_link_libraries(${PROJECT_NAME} glad "${CMAKE_DL_LIBS}")
+
+# add_subdirectory(Source/SPH_Naive)
 
 target_link_libraries(
         ${PROJECT_NAME}
