@@ -36,3 +36,9 @@ void Triangle::create(glm::vec3 a, glm::vec3 b, glm::vec3 c, glm::vec3 na, glm::
 
     createBuffers();
 }
+
+void Triangle::draw() 
+{
+    glBindVertexArray(m_vao);
+    glDrawArrays(GL_POINTS, 0, m_vertices.size());
+}

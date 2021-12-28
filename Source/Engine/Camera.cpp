@@ -9,7 +9,7 @@ Camera::Camera(float width, float height)
     m_fov = 45.5f;
     m_projectionMatrix = glm::perspective(m_fov, width / height, 0.1f, 100.0f);
 
-    m_cameraPos = glm::vec3(0.0f, 0.0f, 0.0f);
+    m_cameraPos = glm::vec3(0.0f, 0.0f, 5.0f);
     m_center = glm::vec3(0.0f, 0.0f, 0.0f);
     m_up = glm::vec3(0.0f, 1.0f, 0.0f);
     m_cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
@@ -132,7 +132,7 @@ void Camera::update(GLFWwindow *window)
     // speed up camera movement by pressing shift
     float speedUp = 1.0f;
     if(glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
-        speedUp = 100.0f;
+        speedUp = 10.0f;
 
     speedUp *= m_speed;
 

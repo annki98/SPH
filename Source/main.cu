@@ -228,8 +228,11 @@ int main()
 
     // FBO for rendering the scene
     std::unique_ptr<FBO> sceneFBO = std::make_unique<FBO>(WIDTH, HEIGHT, 2);
-
+    
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sceneFBO->getColorAttachment(0), 0);
+
+    // set larger point size so points are properly visible on higher res screens
+    glPointSize(10.0f);
 
     while(!glfwWindowShouldClose(window))
     {
@@ -250,11 +253,25 @@ int main()
         state->setTime(glfwGetTime());
         state->setDeltaTime(deltaTime);
 
-        glEnable(GL_DEPTH_TEST);
+        // First pass for water
+        glBindFramebuffer(GL_FRAMEBUFFER, sceneFBO->getID());
+        glClearColor(0.8f, 0.8f, 1.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        
+        basicShaderProgram->use();
+        basicShaderProgram->setMat4("projectionMatrix", *state->getCamera()->getProjectionMatrix());
+        basicShaderProgram->setMat4("viewMatrix", *state->getCamera()->getViewMatrix());
+
+        triangle->draw();
+
+
+        // Second pass with SFQ
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
         glDisable(GL_DEPTH_TEST);
+
+        sfq->getShaderProgram()->use();
+        sfq->getShaderProgram()->setSampler2D("fbo", sceneFBO->getColorAttachment(0), 0);
+        sfq->draw(sceneFBO->getColorAttachment(0));
 
         ImGui::Begin("Performance");
         ImGui::Text("%s", std::string("Frame Time: " + std::to_string(deltaTime * 1000.0f) + "ms").c_str());
