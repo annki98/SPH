@@ -27,14 +27,14 @@ float constantK = 1481.f;
 float restingDensity = 1000.f;
 
 glm::vec3 gravity = (0,-9.8,0);
-mass = ( (4 * M_PI * ( pow(particleRadius/4), 3)) / (3 * neighbours.size()) ) * restingDensity;
+mass = ( (4 * M_PI * ( pow(smoothingRadius), 3)) / (3 * neighbours.size()) ) * restingDensity;
 
 
 //placeholders!
 std::vector<particle> neighbours = {};
 particle thisParticle;
 
-void sphNaive()
+void sph_Density()
 {
     //equation (2): denstiy
 
@@ -49,11 +49,17 @@ void sphNaive()
         resultDensity += neighbours[j].mass * ( 315 / temp ) * glm::pow( (glm::pow(smoothingRadius, 2) - glm::pow(glm::length(tempVector), 2)), 3);
     }
     thisParticle.density = resultDensity;
+}
 
+void sph_Pressure()
+{
     //pressure
 
     float pressure = constantK * (thisParticle.density * restingDensity);
+}
 
+void sph_PressureGradient()
+{
     //equation(3): pressure gradient
 
     glm::vec3 resultPG;
@@ -69,7 +75,10 @@ void sphNaive()
         resultPG += (tempVector / glm::length(tempVector)) * static_cast<float>(neighbours[j].mass * ( thisTemp + neighbourTemp ) * ( -45 / (M_PI * pow(smoothingRadius, 6))) * pow(smoothingRadius - glm::length(tempVector), 2));
     }
     thisParticle.pressureGradient = resultPG;
+}
 
+void sph_Viscosity()
+{
     //equation(4): viscocity
 
     glm::vec3 resultV;
@@ -81,7 +90,19 @@ void sphNaive()
         resultV += ( ( neighbours[j].velocity - thisParticle.velocity) / neighbours[j].density)* static_cast<float>(neighbours[j].mass * ( 45 / (M_PI * pow(smoothingRadius, 6))) * (smoothingRadius - glm::length(tempVector)));   
     }
     glm::vec3 viscousTerm = (thisParticle.viscocity / thisParticle.density) * resultV;
+}
+
+void sph_Acceleration()
+{
     //equation (1) : acceleration
 
     glm::vec3 acceleration = gravity - thisParticle.pressureGradient + viscousTerm;
 }
+
+    
+
+    
+
+    
+
+    
