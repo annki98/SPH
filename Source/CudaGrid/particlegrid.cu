@@ -51,14 +51,14 @@ __device__ uint calcGridHash(int3 gridPos)
 }
 
 // calculate grid hash value for each particle
-void __global__ calcHashD(uint  *gridParticleHash,  uint   *gridParticleIndex, float3 *pos, uint numParticles)
+void __global__ calcHashD(uint  *gridParticleHash,  uint   *gridParticleIndex, Particle *particles, uint numParticles)
 {
     uint index = blockIdx.x * blockDim.x + threadIdx.x;
 
     if (index >= numParticles){
         return;
     }
-    volatile float3 p = pos[index];
+    volatile float3 p = particles[index].position;
 
     // get address in grid
     int3 gridPos = calcGridPos(make_float3(p.x, p.y, p.z));
@@ -74,12 +74,10 @@ void __global__ calcHashD(uint  *gridParticleHash,  uint   *gridParticleIndex, f
 __global__
 void reorderDataAndFindCellStartD(uint   *cellStart,        // output: cell start index
                                   uint   *cellEnd,          // output: cell end index
-                                  float3 *sortedPos,        // output: sorted positions
-                                //   float4 *sortedVel,        // output: sorted velocities
+                                  Particle *sortedParticles,        // output: sorted particles
                                   uint   *gridParticleHash, // input: sorted grid hashes
                                   uint   *gridParticleIndex,// input: sorted particle indices
-                                  float3 *oldPos,           // input: sorted position array
-                                //   float4 *oldVel,           // input: sorted velocity array
+                                  Particle *oldParticles,       // input: particle array
                                   uint    numParticles)
 {
     // Handle to thread block group
@@ -131,15 +129,72 @@ void reorderDataAndFindCellStartD(uint   *cellStart,        // output: cell star
 
         // Now use the sorted index to reorder the pos and vel data
         uint sortedIndex = gridParticleIndex[index];
-        float3 pos = oldPos[sortedIndex];
+        Particle pos = oldParticles[sortedIndex];
         // float4 vel = oldVel[sortedIndex];
 
-        sortedPos[index] = pos;
+        sortedParticles[index] = pos;
         // sortedVel[index] = vel;
     }
 
 
 }
+
+__global__
+void calcSphD(Particle *particleArray,
+            Particle *oldParticles, // sorted particle array
+            uint* cellStart,
+            uint* cellEnd,
+            uint* gridParticleIndex,
+            uint numParticles)
+    {
+        uint index = blockIdx.x *blockDim.x + threadIdx.x;
+
+        if (index >= numParticles) return;
+
+        Particle part = oldParticles[index]; // Particle for which sph equations need to be computed
+
+        // get address in grid
+        int3 gridPos = calcGridPos(part.position);
+    	
+        //TODO: initialize values to be computed
+        float density = 0.f;
+
+        // go over all surrounding cells
+        for (int z=-1; z<=1; z++)
+        {
+            for (int y=-1; y<=1; y++)
+            {
+                for (int x=-1; x<=1; x++)
+                {
+                    int3 neighbourPos = gridPos + make_int3(x, y, z);
+                    uint gridHash = calcGridHash(neighbourPos);
+
+                    uint startIndex = cellStart[gridHash];
+
+                    if(startIndex != 0xffffffff) // cell not empty
+                    {
+                        uint endIndex = cellEnd[gridHash];
+
+                        // TODO: Calculate SPH equations here
+                        for(uint j = startIndex; j < endIndex; j++)
+                        {
+                            if(j != index) // exclude the particle itself from neighbors
+                            {
+                                Particle neighborParticle = oldParticles[j];
+
+                                // density += neighborParticle.mass * ...
+
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        uint originalIndex = gridParticleIndex[index];
+        // TODO: Update particle properties in the original array
+        particleArray[originalIndex].density = density;
+    }   
 
 int3 calcGridPos(float3 p, float3 worldOrigin, float3 cellSize)
 {
@@ -177,65 +232,6 @@ void printParticles(float3 * particles, int n){
     for (int i = 0; i < n; i++)
         std::cout << "Particle "<<particles[i].x<<", "<<particles[i].y<<", "<<particles[i].z<<std::endl;
 }
-
-void ParticleSystem::calcHash(uint  *gridParticleHash,
-                uint  *gridParticleIndex,
-                float *pos,
-                int    numParticles)
-{
-    uint numThreads, numBlocks;
-    computeGridSize(numParticles, 256, numBlocks, numThreads);
-    std::cout<<"Num Blocks: "<<numBlocks<<", Num Threads: "<<numThreads<<std::endl;
-    // printParticles((float3 *)pos, 30);
-    // execute the kernel
-    calcHashD<<< numBlocks, numThreads >>>(gridParticleHash,gridParticleIndex,(float3 *) pos, numParticles);
-
-    gpuErrchk( cudaPeekAtLastError());
-}
-
-void ParticleSystem::sortParticles(uint *dGridParticleHash, uint *dGridParticleIndex, uint* dSortedHash, uint* dSortedIndex, uint numParticles)
-{
-    // Determine temporary device storage requirements
-    // this is done by passing 0 as the temp storage
-    void     *tempStorage_d = NULL;
-    size_t   tempStorageSize = 0;
-    gpuErrchk( cub::DeviceRadixSort::SortPairs(tempStorage_d, tempStorageSize, dGridParticleHash,dSortedHash, dGridParticleIndex,dSortedIndex, numParticles));
-
-    // Allocate temporary storage
-    gpuErrchk( cudaMalloc(&tempStorage_d, tempStorageSize));
-    // Run sorting operation
-    gpuErrchk( cub::DeviceRadixSort::SortPairs(tempStorage_d, tempStorageSize, dGridParticleHash, dSortedHash, dGridParticleIndex, dSortedIndex, numParticles));
-}
-
-
-void ParticleSystem::reorderDataAndFindCellStart(uint  *cellStart,
-                                     uint  *cellEnd,
-                                     float *sortedPos,
-                                    //  float *sortedVel,
-                                     uint  *gridParticleHash,
-                                     uint  *gridParticleIndex,
-                                     float *oldPos,
-                                    //  float *oldVel,
-                                     uint   numParticles,
-                                     uint   numCells)
-    {
-        uint numThreads, numBlocks;
-        computeGridSize(numParticles, 256, numBlocks, numThreads);
-
-        // set all cells to empty
-        gpuErrchk(cudaMemset(cellStart, 0xffffffff, numCells*sizeof(uint)));
-
-        uint smemSize = sizeof(uint)*(numThreads+1);
-        reorderDataAndFindCellStartD<<< numBlocks, numThreads, smemSize>>>(
-            cellStart,
-            cellEnd,
-            (float3 *) sortedPos,
-            gridParticleHash,
-            gridParticleIndex,
-            (float3 *) oldPos,
-            numParticles);
-
-    }
 
 
 void getNeighbors(float3 pos, uint* dSortedHash, uint* dSortedIndex, std::vector<uint> &neighborIndex, uint numParticles){
@@ -277,7 +273,7 @@ void getNeighbors(float3 pos, uint* dSortedHash, uint* dSortedIndex, std::vector
     }
 }
 
-void getSortedNeighbors(float3 pos, uint* cellStart, float3* sortedParticles, uint* cellEnd, std::vector<uint> &neighborIndex, uint numParticles){
+void getSortedNeighbors(float3 pos, uint* cellStart, uint* cellEnd, std::vector<uint> &neighborIndex, uint numParticles){
     // uint numThreads, numBlocks;
     // computeGridSize(numParticles, 64, numBlocks, numThreads);
     
@@ -320,9 +316,9 @@ void getSortedNeighbors(float3 pos, uint* cellStart, float3* sortedParticles, ui
 
 ParticleSystem::ParticleSystem(uint numParticles, float3 worldOrigin, uint3 gridSize, float h):
     m_numParticles(numParticles),
-    m_particles(0),
+    m_particleArray(0),
     m_worldOrigin(worldOrigin),
-    m_sortedParticles(0),
+    m_sortedParticleArray(0),
     m_gridSize(gridSize),
     m_cellSize(make_float3(2*h,2*h,2*h))
 {
@@ -334,78 +330,189 @@ ParticleSystem::~ParticleSystem(){
     _free();
 }
 
+void ParticleSystem::calcHash(uint  *gridParticleHash,
+                uint  *gridParticleIndex,
+                Particle *particles,
+                int    numParticles)
+{
+    uint numThreads, numBlocks;
+    computeGridSize(numParticles, 256, numBlocks, numThreads);
+    std::cout<<"Num Blocks: "<<numBlocks<<", Num Threads: "<<numThreads<<std::endl;
+    // printParticles((float3 *)pos, 30);
+    // execute the kernel
+    calcHashD<<< numBlocks, numThreads >>>(gridParticleHash,gridParticleIndex, particles, numParticles);
+
+    gpuErrchk( cudaPeekAtLastError());
+}
+
+void ParticleSystem::sortParticles(uint *dGridParticleHash, uint *dGridParticleIndex, uint* dSortedHash, uint* dSortedIndex, uint numParticles)
+{
+    // Determine temporary device storage requirements
+    // this is done by passing 0 as the temp storage
+    void     *tempStorage_d = NULL;
+    size_t   tempStorageSize = 0;
+    gpuErrchk( cub::DeviceRadixSort::SortPairs(tempStorage_d, tempStorageSize, dGridParticleHash,dSortedHash, dGridParticleIndex,dSortedIndex, numParticles));
+
+    // Allocate temporary storage
+    gpuErrchk( cudaMalloc(&tempStorage_d, tempStorageSize));
+    // Run sorting operation
+    gpuErrchk( cub::DeviceRadixSort::SortPairs(tempStorage_d, tempStorageSize, dGridParticleHash, dSortedHash, dGridParticleIndex, dSortedIndex, numParticles));
+}
+
+
+void ParticleSystem::reorderDataAndFindCellStart(uint  *cellStart,
+                                     uint  *cellEnd,
+                                     Particle *sortedParticles,
+                                    //  float *sortedPos,
+                                     uint  *gridParticleHash,
+                                     uint  *gridParticleIndex,
+                                    //  float *oldPos,
+                                     Particle *oldParticles,
+                                     uint   numParticles,
+                                     uint   numCells)
+    {
+        uint numThreads, numBlocks;
+        computeGridSize(numParticles, 256, numBlocks, numThreads);
+
+        // set all cells to empty
+        gpuErrchk(cudaMemset(cellStart, 0xffffffff, numCells*sizeof(uint)));
+
+        uint smemSize = sizeof(uint)*(numThreads+1);
+        reorderDataAndFindCellStartD<<< numBlocks, numThreads, smemSize>>>(
+            cellStart,
+            cellEnd,
+            sortedParticles,
+            gridParticleHash,
+            gridParticleIndex,
+            oldParticles,
+            numParticles);
+
+    }
+
+void ParticleSystem::calcSph(Particle *particleArray, //write new properties to this array
+             Particle *sortedParticles,
+             uint* cellStart,
+             uint* cellEnd,
+             uint* gridParticleIndex,
+             uint numParticles
+             )         
+    {
+
+        // thread per particle
+        uint numThreads, numBlocks;
+        computeGridSize(numParticles, 64, numBlocks, numThreads);
+
+                // execute the kernel
+        calcSphD<<< numBlocks, numThreads >>>(particleArray,
+                                              sortedParticles,
+                                              cellStart,
+                                              cellEnd,
+                                              gridParticleIndex,
+                                              numParticles);
+
+    }
+
 void ParticleSystem::update(){
 
-    calcHash(m_dGridParticleHash,m_dGridParticleIndex, (float *) m_particles, m_numParticles);
-    // int *num_out;
-    // gpuErrchk(cudaMallocManaged(&num_out, sizeof(int)));
+    //TODO: 
+    //timeIntegration()
+
+    calcHash(m_dGridParticleHash, m_dGridParticleIndex, m_particleArray, m_numParticles);
 
     gpuErrchk( cudaDeviceSynchronize());
     std::cout<<"------------\n";
     for (int i = 0; i < 100; i++){
-        std::cout << "Particle "<<m_particles[i].x<<", "<<m_particles[i].y<<", "<<m_particles[i].z<<", "<<"Hash: "<<m_dGridParticleHash[i]<<", Index: "<<m_dGridParticleIndex[i]<<std::endl;
+        float3 p = m_particleArray[i].position;
+        std::cout << "Particle "<<p.x<<", "<<p.y<<", "<<p.z<<", "
+        <<"Hash: "<<m_dGridParticleHash[i]<<
+        ", Index: "<<m_dGridParticleIndex[i]<<std::endl;
     }
 
 
-    sortParticles(m_dGridParticleHash, m_dGridParticleIndex, m_dSortedParticleHash, m_dSortedParticleIndex, numElements);
+    sortParticles(m_dGridParticleHash, m_dGridParticleIndex, m_dSortedParticleHash, m_dSortedParticleIndex, m_numParticles);
 
     gpuErrchk( cudaDeviceSynchronize());
     std::cout<<"------ HASHING ------\n";
     for (int i = 0; i < 100; i++){
-        std::cout << "Particle "<<m_particles[m_dSortedParticleIndex[i]].x<<", "<<m_particles[m_dSortedParticleIndex[i]].y<<", "<<m_particles[m_dSortedParticleIndex[i]].z
+        float3 p = m_particleArray[m_dSortedParticleIndex[i]].position;
+        std::cout << "Particle "<<p.x<<", "<<p.y<<", "<<p.z
                     <<", "<<"Hash: "<<m_dSortedParticleHash[i]<<", Index: "<<m_dSortedParticleIndex[i]<<std::endl;
     }
 
 
     reorderDataAndFindCellStart(m_cellStart,
                                 m_cellEnd,
-                                (float *) m_sortedParticles,
+                                m_sortedParticleArray,
                                 m_dSortedParticleHash,
                                 m_dSortedParticleIndex,
-                                (float *) m_particles,
-                                numElements,
+                                m_particleArray,
+                                m_numParticles,
                                 m_numGridCells);
 
     gpuErrchk( cudaDeviceSynchronize());
     std::cout<<"------ REORDERING AND SORTING ------\n";
     for (int i = 0; i < 100; i++){
-        int3 gridPos = calcGridPos(m_sortedParticles[i], m_worldOrigin, m_cellSize);
+        float3 p = m_sortedParticleArray[i].position;
+        int3 gridPos = calcGridPos(p, m_worldOrigin, m_cellSize);
         uint gridHash = calcGridHash(gridPos, m_gridSize);
-        std::cout << "Particle "<<m_sortedParticles[i].x<<", "<<m_sortedParticles[i].y<<", "<<m_sortedParticles[i].z
+        std::cout << "Particle "<<p.x<<", "<<p.y<<", "<<p.z
                     <<", GridPos: "<<gridPos.x<<", "<<gridPos.y<<", "<<gridPos.z<<", Hash: "<<gridHash
                     <<", Cell Start: "<<m_cellStart[gridHash]<<", Cell End: "<<m_cellEnd[gridHash]
                     <<", Index: "<<m_dSortedParticleIndex[i]<<std::endl;
     }
+
+    //TODO: call calcSph
+
 }
 
 void ParticleSystem::checkNeighbors(uint index){
 
-    float3 testParticle = m_particles[index];
-    std::cout<<" ### NEIGHBORS FOR PARTICLE "<<testParticle.x<<","<<testParticle.y<<","<<testParticle.z<<" ###\n"<<std::endl;
+    Particle testParticle = m_particleArray[index];
+    float3 p = testParticle.position;
+    std::cout<<" ### NEIGHBORS FOR PARTICLE "<<p.x<<","<<p.y<<","<<p.z<<" ###\n"<<std::endl;
     
     std::vector<uint> neighbors;
 
-    getNeighbors(testParticle, m_dSortedParticleHash, m_dSortedParticleIndex, neighbors, numElements);
+    getNeighbors(p, m_dSortedParticleHash, m_dSortedParticleIndex, neighbors, numElements);
     printf("Without sorting: \n");
     for(int i = 0; i < neighbors.size(); i++){
         uint index = neighbors[i];
-        printf("Neighbor %d, pos (%f,%f,%f)\n", index, m_particles[index].x, m_particles[index].y, m_particles[index].z);
+        float3 neighPos = m_particleArray[index].position;
+        printf("Neighbor %d, pos (%f,%f,%f)\n", index, neighPos.x, neighPos.y, neighPos.z);
     }
 
     neighbors.clear();
-    getSortedNeighbors(testParticle, m_cellStart, m_sortedParticles, m_cellEnd, neighbors, numElements);
+    getSortedNeighbors(p, m_cellStart, m_cellEnd, neighbors, numElements);
     printf("\nWith sorting: \n");
     for(int i = 0; i < neighbors.size(); i++){
         uint index = neighbors[i];
-        printf("Neighbor pos (%f,%f,%f)\n", m_sortedParticles[index].x, m_sortedParticles[index].y, m_sortedParticles[index].z);
+        float3 neighPos = m_sortedParticleArray[index].position;
+        printf("Neighbor %d, pos (%f,%f,%f)\n", index, neighPos.x, neighPos.y, neighPos.z);
+    }
+}
+
+void ParticleSystem::_initParticles(int numParticles){
+    std::random_device seed;
+    std::default_random_engine rng(seed());
+    std::uniform_real_distribution<float> pos(0, m_gridSize.x*m_cellSize.x); //assumes all dims to be same size
+    
+    for (auto it = m_particleArray; it != m_particleArray + numParticles; it++) {
+        it->position = make_float3(pos(rng),pos(rng),pos(rng));
+        it->velocity = make_float3(0.f,0.f,0.f);
+        it->mass = 1.f;
     }
 }
 
 void ParticleSystem::_init(int numParticles){
    
-    gpuErrchk(cudaMallocManaged(&m_particles, numParticles * sizeof(float3)));
-    gpuErrchk(cudaMallocManaged(&m_sortedParticles, numParticles * sizeof(float3)));
-    genRandomData(m_particles, m_particles + numParticles, m_gridSize.x*m_cellSize.x); //assumes all dims to be same size
+
+    gpuErrchk(cudaMallocManaged(&m_particleArray, numParticles * sizeof(Particle)));
+    gpuErrchk(cudaMallocManaged(&m_sortedParticleArray, numParticles * sizeof(Particle)));
+    _initParticles(numParticles);
+
+    // gpuErrchk(cudaMallocManaged(&m_particles, numParticles * sizeof(float3)));
+    // gpuErrchk(cudaMallocManaged(&m_sortedParticles, numParticles * sizeof(float3)));
+    // genRandomData(m_particles, m_particles + numParticles, m_gridSize.x*m_cellSize.x); //assumes all dims to be same size
     
     gpuErrchk(cudaMallocManaged(&m_dGridParticleHash, numParticles * sizeof(uint)));
     gpuErrchk(cudaMallocManaged(&m_dGridParticleIndex, numParticles * sizeof(uint)));
@@ -418,8 +525,8 @@ void ParticleSystem::_init(int numParticles){
 }
 
 void ParticleSystem::_free(){
-    cudaFree(m_particles);
-    cudaFree(m_sortedParticles);
+    cudaFree(m_particleArray);
+    cudaFree(m_sortedParticleArray);
     cudaFree(m_dGridParticleHash);
     cudaFree(m_dGridParticleIndex);
     cudaFree(m_dSortedParticleHash);
@@ -440,10 +547,8 @@ int main() {
     ParticleSystem* psystem = new ParticleSystem(numElements, hostWorldOrigin, hostGridSize, 1);
 
     psystem->update();
-    
+
+    //for testing purposes
     psystem->checkNeighbors(5);
-
-
-
     return 0;
 }

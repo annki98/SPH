@@ -4,6 +4,21 @@
 #include <iostream>
 #include <random>
 
+
+class Particle 
+{
+    public:
+        float3 pressureGradient;
+        float pressure;
+        float3 position;
+        float density;
+        float3 velocity;
+        float mass; //130.9 * (radius^3 /  96)
+        float3 convecAccel;
+        float viscocity;
+
+};
+
 typedef unsigned int uint;
 
 class ParticleSystem{
@@ -13,7 +28,8 @@ class ParticleSystem{
 
     void calcHash(uint  *gridParticleHash,
                 uint  *gridParticleIndex,
-                float *pos,
+                //float *pos,
+                Particle* particles,
                 int    numParticles);
     
     void sortParticles(uint *dGridParticleHash, 
@@ -24,25 +40,40 @@ class ParticleSystem{
 
     void reorderDataAndFindCellStart(uint  *cellStart,
                                      uint  *cellEnd,
-                                     float *sortedPos,
+                                     Particle *sortedParticles,
                                      uint  *gridParticleHash,
                                      uint  *gridParticleIndex,
-                                     float *oldPos,
+                                     Particle *oldParticles,
                                      uint   numParticles,
                                      uint   numCells);
+
+   
+    void calcSph(Particle *particleArray, //write new properties to this array
+             Particle *sortedParticles,
+             uint* cellStart,
+             uint* cellEnd,
+             uint* gridParticleIndex,
+             uint numParticles
+             );
+
     void update();
 
+    // testing method to get all neighboring particles for a given indexed particle
     void checkNeighbors(uint index);
 
  protected:
     void _init(int numParticles);
+    void _initParticles(int numParticles);
     void _free();
 
  private:
     uint m_numParticles;
 
-    float3* m_particles;
-    float3* m_sortedParticles;
+    Particle* m_particleArray;
+    Particle* m_sortedParticleArray;
+    
+   //  float3* m_particles;
+   //  float3* m_sortedParticles;
 
     uint* m_dGridParticleHash;
     uint* m_dGridParticleIndex;
