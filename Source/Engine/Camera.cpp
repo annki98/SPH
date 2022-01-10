@@ -191,6 +191,10 @@ void Camera::getWidthHeight(int *width, int *height)
     *height = m_height;
 }
 
+void Camera::setCameraPosition(glm::vec3 pos) {
+    m_cameraPos = pos;
+}
+
 void Camera::lookAt(glm::vec3 position, glm::vec3 center, glm::vec3 up)
 {
     m_viewmatrix = glm::lookAt(position, center, up);

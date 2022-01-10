@@ -35,6 +35,8 @@ public:
 
     void setWidthHeight(int width, int height);
 
+    void setCameraPosition(glm::vec3 pos);
+
     void getWidthHeight(int *width, int *height);
 
     glm::vec3 *getCameraPosition();

@@ -10,6 +10,7 @@
 #include "Engine/State.h"
 #include "Engine/FBO.h"
 #include "Objects/ScreenFillingQuad.h"
+#include "Objects/SPHMesh.cuh"
 
 #define STB_IMAGE_IMPLEMENTATION
 
@@ -22,6 +23,8 @@ const int WIDTH =  1280;
 const int HEIGHT = 768;
 
 const bool FULLSCREEN = false;
+
+
 
 // context creation callback
 void errorCallback(int error, const char *description)
@@ -204,8 +207,9 @@ int main()
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.ConfigDockingWithShift = false;
 
-    std::unique_ptr<Triangle> triangle = std::make_unique<Triangle>();
-
+    //std::unique_ptr<Triangle> triangle = std::make_unique<Triangle>();
+    
+    std::unique_ptr<SPHMesh> sphmesh = std::make_unique<SPHMesh>();
 
 
     std::shared_ptr<Shader> basicVertexShader = std::make_shared<Shader>(std::string(SHADERPATH) + "/Basic.vert");
@@ -233,6 +237,9 @@ int main()
 
     // set larger point size so points are properly visible on higher res screens
     glPointSize(10.0f);
+
+    // move camera to a position where mesh is visible
+    state->getCamera()->setCameraPosition(glm::vec3(25.0f, 10.0f, 50.0f));
 
     while(!glfwWindowShouldClose(window))
     {
@@ -262,7 +269,7 @@ int main()
         basicShaderProgram->setMat4("projectionMatrix", *state->getCamera()->getProjectionMatrix());
         basicShaderProgram->setMat4("viewMatrix", *state->getCamera()->getViewMatrix());
 
-        triangle->draw();
+        sphmesh->draw();
 
 
         // Second pass with SFQ

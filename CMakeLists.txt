@@ -90,7 +90,9 @@ add_executable(${PROJECT_NAME}
         Source/Objects/Quad.cpp
         Source/Objects/Quad.h
         Source/Engine/State.cpp
-        Source/sph_naive.cu
+        #Source/sph_naive.cu
+        Source/Objects/SPHMesh.cuh
+        Source/Objects/SPHMesh.cu
         )
 
 # target_compile_options(CudaTest PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${CUDA_OPTIONS}>)
