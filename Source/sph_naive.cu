@@ -20,19 +20,26 @@ class particle
         glm::vec3 convecAccel;
 };
 
-float particleRadius;
+//placeholders!
+std::vector<particle> neighbours = {};
+particle thisParticle;
+
+float particleRadius = 0.3f;
 float smoothingRadius = particleRadius / 4;
 
 float constantK = 1481.f;
 float restingDensity = 1000.f;
 
-glm::vec3 gravity = (0,-9.8,0);
-mass = ( (4 * M_PI * ( pow(smoothingRadius), 3)) / (3 * neighbours.size()) ) * restingDensity;
+glm::vec3 gravity = glm::vec3(0.f,-9.8f,0.f);
 
+void calcMass()
+{
+    //mass
 
-//placeholders!
-std::vector<particle> neighbours = {};
-particle thisParticle;
+    thisParticle.mass = ( (4 * M_PI * (pow(smoothingRadius, 3)) / (3 * neighbours.size()) ) * restingDensity);
+}
+
+glm::vec3 viscousTerm;
 
 void sph_Density()
 {
@@ -89,7 +96,7 @@ void sph_Viscosity()
 
         resultV += ( ( neighbours[j].velocity - thisParticle.velocity) / neighbours[j].density)* static_cast<float>(neighbours[j].mass * ( 45 / (M_PI * pow(smoothingRadius, 6))) * (smoothingRadius - glm::length(tempVector)));   
     }
-    glm::vec3 viscousTerm = (thisParticle.viscocity / thisParticle.density) * resultV;
+    viscousTerm = (thisParticle.viscocity / thisParticle.density) * resultV;
 }
 
 void sph_Acceleration()
