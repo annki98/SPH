@@ -3,7 +3,8 @@
 
 #include <iostream>
 #include <random>
-
+#define _USE_MATH_DEFINES
+#include <math.h>
 
 class Particle 
 {
@@ -15,7 +16,7 @@ class Particle
         float3 velocity;
         float mass; //130.9 * (radius^3 /  96)
         float3 convecAccel;
-        float viscocity;
+        float3 viscosity;
 
 };
 

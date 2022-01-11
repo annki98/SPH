@@ -3,6 +3,7 @@
 #include <cub/cub.cuh>
 #include <chrono>
 #include <cooperative_groups.h>
+#include "helper_math.h"
 
 #include "particlegrid.cuh"
 #include "../Shared/cudaErrorCheck.h"
@@ -22,14 +23,10 @@ void genRandomData(itT begin, itT end, int maxSize) {
     }
 }
 
-inline __host__ __device__ int3 operator+(int3 a, int3 b)
-{
-    return make_int3(a.x + b.x, a.y + b.y, a.z + b.z);
-}
-
 __constant__ float3 worldOrigin;
 __constant__ float3 cellSize;
 __constant__ uint3  gridSize;
+__constant__ float smoothingRadius;
 
 // calculate position in uniform grid
 __device__ int3 calcGridPos(float3 p)
@@ -139,6 +136,140 @@ void reorderDataAndFindCellStartD(uint   *cellStart,        // output: cell star
 
 }
 
+__device__ float sphDensity(uint* cellStart,
+                uint* cellEnd,
+                int3 gridPos,
+                Particle *particles,
+                uint index){
+        float density = 0.f;
+        Particle particle = particles[index];
+        // go over all surrounding cells
+        for (int z=-1; z<=1; z++)
+        {
+            for (int y=-1; y<=1; y++)
+            {
+                for (int x=-1; x<=1; x++)
+                {
+                    int3 neighbourPos = gridPos + make_int3(x, y, z);
+                    uint gridHash = calcGridHash(neighbourPos);
+
+                    uint startIndex = cellStart[gridHash];
+                    if(startIndex != 0xffffffff) // cell not empty
+                    {
+                        uint endIndex = cellEnd[gridHash];
+
+                        for(uint j = startIndex; j < endIndex; j++)
+                        {
+                            if(j != index) // exclude the particle itself from neighbors
+                            {
+                                Particle neighborParticle = particles[j];
+
+                                float dist = length(neighborParticle.position - particle.position);
+                                //Density equation
+                                float denom = static_cast<float>(64 * M_PI * pow(smoothingRadius, 9));
+
+                                density += neighborParticle.mass * (315 / denom) * pow(pow(smoothingRadius, 2) - pow(dist,2),3);
+                            }
+                        }
+
+                    }
+                }
+            }
+        }
+        return density;
+}
+
+
+__device__ float3 sphPressureGradient(
+                uint* cellStart,
+                uint* cellEnd,
+                int3 gridPos,
+                Particle *particles,
+                uint index,
+                float pressure,
+                float density){
+        float3 gradient = make_float3(0.0,0.0,0.0);
+        Particle particle = particles[index];
+        // go over all surrounding cells
+        for (int z=-1; z<=1; z++)
+        {
+            for (int y=-1; y<=1; y++)
+            {
+                for (int x=-1; x<=1; x++)
+                {
+                    int3 neighbourPos = gridPos + make_int3(x, y, z);
+                    uint gridHash = calcGridHash(neighbourPos);
+
+                    uint startIndex = cellStart[gridHash];
+                    if(startIndex != 0xffffffff) // cell not empty
+                    {
+                        uint endIndex = cellEnd[gridHash];
+
+                        for(uint j = startIndex; j < endIndex; j++)
+                        {
+                            if(j != index) // exclude the particle itself from neighbors
+                            {
+                                Particle neighborParticle = particles[j];
+
+                                float temp = (pressure/ pow(density,2));
+                                float n_temp = (neighborParticle.pressure / pow(neighborParticle.density,2));
+                                float3 dVec = particle.position - neighborParticle.position;
+
+                                gradient += dVec/length(dVec) * neighborParticle.mass * (temp + n_temp) * (-45 / (M_PI * pow(smoothingRadius,6)))
+                                            * pow(smoothingRadius - length(dVec),2);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return gradient;
+}
+
+
+__device__ float3 sphViscosity(
+                uint* cellStart,
+                uint* cellEnd,
+                int3 gridPos,
+                Particle *particles,
+                uint index,
+                float density){
+        float3 viscosity = make_float3(0.0,0.0,0.0);
+        Particle particle = particles[index];
+        // go over all surrounding cells
+        for (int z=-1; z<=1; z++)
+        {
+            for (int y=-1; y<=1; y++)
+            {
+                for (int x=-1; x<=1; x++)
+                {
+                    int3 neighbourPos = gridPos + make_int3(x, y, z);
+                    uint gridHash = calcGridHash(neighbourPos);
+
+                    uint startIndex = cellStart[gridHash];
+                    if(startIndex != 0xffffffff) // cell not empty
+                    {
+                        uint endIndex = cellEnd[gridHash];
+
+                        for(uint j = startIndex; j < endIndex; j++)
+                        {
+                            if(j != index) // exclude the particle itself from neighbors
+                            {
+                                Particle neighborParticle = particles[j];
+
+                                float3 dVec = particle.position - neighborParticle.position;
+
+                                viscosity += ((neighborParticle.velocity - particle.velocity) / neighborParticle.density)
+                                            * (neighborParticle.mass * (45/(M_PI * pow(smoothingRadius,6))) * (smoothingRadius - length(dVec)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return (particle.viscosity / density) * viscosity;
+}
+
 __global__
 void calcSphD(Particle *particleArray,
             Particle *oldParticles, // sorted particle array
@@ -156,44 +287,25 @@ void calcSphD(Particle *particleArray,
         // get address in grid
         int3 gridPos = calcGridPos(part.position);
     	
-        //TODO: initialize values to be computed
-        float density = 0.f;
+        // SPH: density        
+        float density = sphDensity(cellStart, cellEnd,gridPos, oldParticles, index);
+        // SPH: Pressure
+        float K = 1481.f;
+        float restingDensity = 1000.f;
+        float pressure = K * density * restingDensity;
+        // SPH: Pressure gradient
+        float3 gradient = sphPressureGradient(cellStart, cellEnd, gridPos,oldParticles,index, density, pressure);
+        // SPH: viscosity
+        float3 viscosity = sphViscosity(cellStart,cellEnd,gridPos,oldParticles,index,density);
 
-        // go over all surrounding cells
-        for (int z=-1; z<=1; z++)
-        {
-            for (int y=-1; y<=1; y++)
-            {
-                for (int x=-1; x<=1; x++)
-                {
-                    int3 neighbourPos = gridPos + make_int3(x, y, z);
-                    uint gridHash = calcGridHash(neighbourPos);
-
-                    uint startIndex = cellStart[gridHash];
-
-                    if(startIndex != 0xffffffff) // cell not empty
-                    {
-                        uint endIndex = cellEnd[gridHash];
-
-                        // TODO: Calculate SPH equations here
-                        for(uint j = startIndex; j < endIndex; j++)
-                        {
-                            if(j != index) // exclude the particle itself from neighbors
-                            {
-                                Particle neighborParticle = oldParticles[j];
-
-                                // density += neighborParticle.mass * ...
-
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
         uint originalIndex = gridParticleIndex[index];
         // TODO: Update particle properties in the original array
         particleArray[originalIndex].density = density;
+        particleArray[originalIndex].pressure = pressure;
+        particleArray[originalIndex].pressureGradient = gradient;
+        particleArray[originalIndex].viscosity = viscosity;
+        
     }   
 
 int3 calcGridPos(float3 p, float3 worldOrigin, float3 cellSize)
@@ -314,15 +426,20 @@ void getSortedNeighbors(float3 pos, uint* cellStart, uint* cellEnd, std::vector<
 
 
 
-ParticleSystem::ParticleSystem(uint numParticles, float3 worldOrigin, uint3 gridSize, float h):
+ParticleSystem::ParticleSystem(uint numParticles, float3 hostWorldOrigin, uint3 hostGridSize, float h):
     m_numParticles(numParticles),
     m_particleArray(0),
-    m_worldOrigin(worldOrigin),
+    m_worldOrigin(hostWorldOrigin),
     m_sortedParticleArray(0),
-    m_gridSize(gridSize),
+    m_gridSize(hostGridSize),
     m_cellSize(make_float3(2*h,2*h,2*h))
 {
-    m_numGridCells = gridSize.x * gridSize.y * gridSize.z;
+    gpuErrchk(cudaMemcpyToSymbol(worldOrigin, &m_worldOrigin, sizeof(float3)));
+    gpuErrchk(cudaMemcpyToSymbol(smoothingRadius, &h, sizeof(float)));
+    gpuErrchk(cudaMemcpyToSymbol(cellSize, &m_cellSize, sizeof(float3)));
+    gpuErrchk(cudaMemcpyToSymbol(gridSize, &m_gridSize, sizeof(uint3)));
+
+    m_numGridCells = hostGridSize.x * hostGridSize.y * hostGridSize.z;
     _init(numParticles);
 }
 
@@ -538,13 +655,10 @@ void ParticleSystem::_free(){
 int main() {
 
     float3 hostWorldOrigin = make_float3(0.f,0.f,0.f);
-    gpuErrchk(cudaMemcpyToSymbol(worldOrigin, &hostWorldOrigin, sizeof(float3)));
-    float3 hostCellSize = make_float3(2.f,2.f,2.f);
-    gpuErrchk(cudaMemcpyToSymbol(cellSize, &hostCellSize, sizeof(float3)));
+    float h = 1.f;
     uint3  hostGridSize = make_uint3(64,64,64); // must be power of 2
-    gpuErrchk(cudaMemcpyToSymbol(gridSize, &hostGridSize, sizeof(uint3)));
 
-    ParticleSystem* psystem = new ParticleSystem(numElements, hostWorldOrigin, hostGridSize, 1);
+    ParticleSystem* psystem = new ParticleSystem(numElements, hostWorldOrigin, hostGridSize, h);
 
     psystem->update();
 
