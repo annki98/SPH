@@ -27,15 +27,14 @@ SPHMesh::SPHMesh()
     // setup particle system
     float3 hostWorldOrigin = make_float3(0.f,0.f,0.f);
     float h = 1.f;
-    uint3  hostGridSize = make_uint3(64,64,64); // must be power of 2
+    uint3  hostGridSize = make_uint3(32,32,32); // must be power of 2
 
     ParticleSystem* psystem = new ParticleSystem(numElements, hostWorldOrigin, hostGridSize, h);
 
-    psystem->update();
+    psystem->update(0.01f);
 
     //for testing purposes
-    psystem->checkNeighbors(5);
-
+    // psystem->checkNeighbors(5);
 
     for(auto i = 0; i < numElements; i++) {
         float3 pos = psystem->getParticleArray()[i].position;

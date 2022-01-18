@@ -27,6 +27,29 @@ __constant__ float3 worldOrigin;
 __constant__ float3 cellSize;
 __constant__ uint3  gridSize;
 __constant__ float smoothingRadius;
+__constant__ float3 gravity;
+__constant__ float restingDensity;
+__constant__ float mu; // how viscous is the fluid
+
+
+__global__ void timeIntegrationD(Particle* particles,
+                                float deltaTime,
+                                uint numParticles)
+{
+    uint index = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (index >= numParticles){
+        return;
+    }
+
+    // equation (1)
+    float3 acceleration = gravity - particles[index].pressureGradient + particles[index].viscosity;
+
+    //TODO: write better integration scheme
+    particles[index].velocity += acceleration * deltaTime;
+    particles[index].position += particles[index].velocity * deltaTime;
+}
+
 
 // calculate position in uniform grid
 __device__ int3 calcGridPos(float3 p)
@@ -143,6 +166,7 @@ __device__ float sphDensity(uint* cellStart,
                 uint index){
         float density = 0.f;
         Particle particle = particles[index];
+        // printf("in density equation for Particle (%f,%f,%f) with density %f\n", particle.position.x,particle.position.y,particle.position.z,particle.density);
         // go over all surrounding cells
         for (int z=-1; z<=1; z++)
         {
@@ -163,12 +187,16 @@ __device__ float sphDensity(uint* cellStart,
                             if(j != index) // exclude the particle itself from neighbors
                             {
                                 Particle neighborParticle = particles[j];
-
                                 float dist = length(neighborParticle.position - particle.position);
+                                // printf("-- neighbor (%f,%f,%f). Distance: %f, density %f\n", neighborParticle.position.x,neighborParticle.position.y,neighborParticle.position.z, dist, neighborParticle.density);
+                                if(dist > smoothingRadius){
+                                    //Dismiss
+                                    continue;
+                                }
                                 //Density equation
                                 float denom = static_cast<float>(64 * M_PI * pow(smoothingRadius, 9));
-
-                                density += neighborParticle.mass * (315 / denom) * pow(pow(smoothingRadius, 2) - pow(dist,2),3);
+                                float add = neighborParticle.mass * (315 / denom) * pow(pow(smoothingRadius, 2) - pow(dist,2),3);
+                                density += add;
                             }
                         }
 
@@ -185,9 +213,8 @@ __device__ float3 sphPressureGradient(
                 uint* cellEnd,
                 int3 gridPos,
                 Particle *particles,
-                uint index,
-                float pressure,
-                float density){
+                uint index){
+
         float3 gradient = make_float3(0.0,0.0,0.0);
         Particle particle = particles[index];
         // go over all surrounding cells
@@ -210,13 +237,20 @@ __device__ float3 sphPressureGradient(
                             if(j != index) // exclude the particle itself from neighbors
                             {
                                 Particle neighborParticle = particles[j];
+                                // printf("-- neighbor (%f,%f,%f). Distance: %f, density %f\n", neighborParticle.position.x,neighborParticle.position.y,neighborParticle.position.z, dist, neighborParticle.density);
 
-                                float temp = (pressure/ pow(density,2));
-                                float n_temp = (neighborParticle.pressure / pow(neighborParticle.density,2));
                                 float3 dVec = particle.position - neighborParticle.position;
+                                float dist = length(dVec);
+                                if(dist > smoothingRadius){
+                                    //Dismiss
+                                    continue;
+                                }
 
-                                gradient += dVec/length(dVec) * neighborParticle.mass * (temp + n_temp) * (-45 / (M_PI * pow(smoothingRadius,6)))
-                                            * pow(smoothingRadius - length(dVec),2);
+                                float temp = (particle.pressure/ pow(particle.density,2));
+                                float n_temp = (neighborParticle.pressure / pow(neighborParticle.density,2));
+
+                                gradient += dVec/dist * neighborParticle.mass * (temp + n_temp) * (-45 / (M_PI * pow(smoothingRadius,6)))
+                                            * pow(smoothingRadius - dist,2);
                             }
                         }
                     }
@@ -232,8 +266,8 @@ __device__ float3 sphViscosity(
                 uint* cellEnd,
                 int3 gridPos,
                 Particle *particles,
-                uint index,
-                float density){
+                uint index){
+
         float3 viscosity = make_float3(0.0,0.0,0.0);
         Particle particle = particles[index];
         // go over all surrounding cells
@@ -258,17 +292,53 @@ __device__ float3 sphViscosity(
                                 Particle neighborParticle = particles[j];
 
                                 float3 dVec = particle.position - neighborParticle.position;
-
+                                float dist = length(dVec);
+                                if(dist > smoothingRadius){
+                                    //Dismiss
+                                    continue;
+                                }
                                 viscosity += ((neighborParticle.velocity - particle.velocity) / neighborParticle.density)
-                                            * (neighborParticle.mass * (45/(M_PI * pow(smoothingRadius,6))) * (smoothingRadius - length(dVec)));
+                                            * (neighborParticle.mass * (45/(M_PI * pow(smoothingRadius,6))) * (smoothingRadius - dist));
                             }
                         }
                     }
                 }
             }
         }
-        return (particle.viscosity / density) * viscosity;
+        return (mu / particle.density) * viscosity;
 }
+
+__global__
+void calcDensityPressureD(Particle *oldParticles, // sorted particle array
+            uint* cellStart,
+            uint* cellEnd,
+            uint* gridParticleIndex,
+            uint numParticles)
+{
+    uint index = blockIdx.x *blockDim.x + threadIdx.x;
+
+    if (index >= numParticles) return;
+
+    Particle part = oldParticles[index]; // Particle for which sph equations need to be computed
+
+    // get address in grid
+    int3 gridPos = calcGridPos(part.position);
+    
+    uint originalIndex = gridParticleIndex[index];
+
+    // SPH: density 
+    float density = 0.0;
+    density = sphDensity(cellStart, cellEnd,gridPos, oldParticles, index);
+
+    // SPH: Pressure
+    float K = 2.f;//1481.f;
+    float pressure = K * (density - restingDensity);
+    
+    oldParticles[index].density = density;
+    oldParticles[index].pressure = pressure;
+    
+}  
+
 
 __global__
 void calcSphD(Particle *particleArray,
@@ -287,22 +357,16 @@ void calcSphD(Particle *particleArray,
         // get address in grid
         int3 gridPos = calcGridPos(part.position);
     	
-        // SPH: density        
-        float density = sphDensity(cellStart, cellEnd,gridPos, oldParticles, index);
-        // SPH: Pressure
-        float K = 1481.f;
-        float restingDensity = 1000.f;
-        float pressure = K * density * restingDensity;
         // SPH: Pressure gradient
-        float3 gradient = sphPressureGradient(cellStart, cellEnd, gridPos,oldParticles,index, density, pressure);
+        float3 gradient = sphPressureGradient(cellStart, cellEnd, gridPos,oldParticles,index);
         // SPH: viscosity
-        float3 viscosity = sphViscosity(cellStart,cellEnd,gridPos,oldParticles,index,density);
-
+        float3 viscosity = sphViscosity(cellStart,cellEnd,gridPos,oldParticles,index);
 
         uint originalIndex = gridParticleIndex[index];
-        // TODO: Update particle properties in the original array
-        particleArray[originalIndex].density = density;
-        particleArray[originalIndex].pressure = pressure;
+        
+        // Update particle properties in the original array
+        particleArray[originalIndex].density = part.density;
+        particleArray[originalIndex].pressure = part.pressure;
         particleArray[originalIndex].pressureGradient = gradient;
         particleArray[originalIndex].viscosity = viscosity;
         
@@ -432,12 +496,17 @@ ParticleSystem::ParticleSystem(uint numParticles, float3 hostWorldOrigin, uint3 
     m_worldOrigin(hostWorldOrigin),
     m_sortedParticleArray(0),
     m_gridSize(hostGridSize),
-    m_cellSize(make_float3(2*h,2*h,2*h))
+    m_cellSize(make_float3(h,h,h)) //cell size equals smoothing length
 {
     gpuErrchk(cudaMemcpyToSymbol(worldOrigin, &m_worldOrigin, sizeof(float3)));
     gpuErrchk(cudaMemcpyToSymbol(smoothingRadius, &h, sizeof(float)));
     gpuErrchk(cudaMemcpyToSymbol(cellSize, &m_cellSize, sizeof(float3)));
     gpuErrchk(cudaMemcpyToSymbol(gridSize, &m_gridSize, sizeof(uint3)));
+
+    // copy equation constants to gpu
+    gpuErrchk(cudaMemcpyToSymbol(gravity, &m_gravity, sizeof(float3)));
+    gpuErrchk(cudaMemcpyToSymbol(restingDensity, &m_restingDensity, sizeof(float)));
+    gpuErrchk(cudaMemcpyToSymbol(mu, &m_mu, sizeof(float)));
 
     m_numGridCells = hostGridSize.x * hostGridSize.y * hostGridSize.z;
     _init(numParticles);
@@ -445,6 +514,18 @@ ParticleSystem::ParticleSystem(uint numParticles, float3 hostWorldOrigin, uint3 
 
 ParticleSystem::~ParticleSystem(){
     _free();
+}
+
+void ParticleSystem::timeIntegration(Particle* particles,
+                float deltaTime,
+                int numParticles)
+{
+    uint numThreads, numBlocks;
+    computeGridSize(numParticles, 256, numBlocks, numThreads);
+
+    timeIntegrationD<<< numBlocks, numThreads >>>(particles, deltaTime, numParticles);
+
+    gpuErrchk( cudaPeekAtLastError());
 }
 
 void ParticleSystem::calcHash(uint  *gridParticleHash,
@@ -519,20 +600,25 @@ void ParticleSystem::calcSph(Particle *particleArray, //write new properties to 
         uint numThreads, numBlocks;
         computeGridSize(numParticles, 64, numBlocks, numThreads);
 
-                // execute the kernel
+        //calculate density and pressure first
+        calcDensityPressureD<<< numBlocks, numThreads >>>(sortedParticles,
+                                                            cellStart,
+                                                            cellEnd,
+                                                            gridParticleIndex,
+                                                            numParticles);
+        gpuErrchk( cudaPeekAtLastError());
+        gpuErrchk( cudaDeviceSynchronize());
+        // calculate pressure gradient and viscosity
         calcSphD<<< numBlocks, numThreads >>>(particleArray,
                                               sortedParticles,
                                               cellStart,
                                               cellEnd,
                                               gridParticleIndex,
                                               numParticles);
-
     }
 
-void ParticleSystem::update(){
-
-    //TODO: 
-    //timeIntegration()
+void ParticleSystem::update(float deltaTime)
+{
 
     calcHash(m_dGridParticleHash, m_dGridParticleIndex, m_particleArray, m_numParticles);
 
@@ -579,6 +665,19 @@ void ParticleSystem::update(){
     }
 
     //TODO: call calcSph
+    calcSph(m_particleArray, 
+            m_sortedParticleArray, 
+            m_cellStart,
+            m_cellEnd, 
+            m_dSortedParticleIndex, 
+            m_numParticles);
+    gpuErrchk( cudaDeviceSynchronize());   
+    dumpParticleInfo(0,3);
+
+    timeIntegration(m_particleArray, deltaTime, m_numParticles);    
+    gpuErrchk( cudaDeviceSynchronize());  
+    std::cout<<"======== AFTER TIME INTEGRATION =========\n"; 
+    dumpParticleInfo(0,3);
 
 }
 
@@ -611,17 +710,47 @@ void ParticleSystem::checkNeighbors(uint index){
 Particle* ParticleSystem::getParticleArray() 
 {
     return m_particleArray;
+
+}
+
+void ParticleSystem::dumpParticleInfo(uint start, uint end){
+    for(auto i = start; i<end;i++){
+
+        Particle p = m_particleArray[i];
+        std::cout << "["<<i<<"]: " << "Position: (" << p.position.x <<","
+                                                        <<p.position.y<<","
+                                                        <<p.position.z <<")\n"
+                                    << "Velocity: (" << p.velocity.x <<","
+                                                        <<p.velocity.y<<","
+                                                        <<p.velocity.z <<")\n"
+                                    << "Density: " << p.density << "\n"
+                                    << "Pressure: " <<  p.pressure << "\n"
+                                    << "PressureGradient: (" << p.pressureGradient.x <<","
+                                                            <<p.pressureGradient.y<<","
+                                                            <<p.pressureGradient.z <<")\n"
+                                    << "Viscosity: (" << p.viscosity.x <<","
+                                                            <<p.viscosity.y<<","
+                                                            <<p.viscosity.z <<")\n"
+                                    << "Mass: "<< p.mass << std::endl;
+    }
 }
 
 void ParticleSystem::_initParticles(int numParticles){
+
+    // Option 1
+    float volume = m_gridSize.x*m_cellSize.x * m_gridSize.y*m_cellSize.y * m_gridSize.z*m_cellSize.z;
+    float uniform_mass = m_restingDensity * (volume/numParticles); // rho_0 * V / n
+    // Option 2
+    // float uniform_mass = m_restingDensity * (m_cellSize.x * m_cellSize.y *m_cellSize.z); // rho_0 * h^3
+
     std::random_device seed;
     std::default_random_engine rng(seed());
     std::uniform_real_distribution<float> pos(0, m_gridSize.x*m_cellSize.x); //assumes all dims to be same size
     
     for (auto it = m_particleArray; it != m_particleArray + numParticles; it++) {
         it->position = make_float3(pos(rng),pos(rng),pos(rng));
-        it->velocity = make_float3(0.f,0.f,0.f);
-        it->mass = 1.f;
+        it->velocity = make_float3(rand()/float(RAND_MAX),0.f,0.f);
+        it->mass = uniform_mass;
     }
 }
 
@@ -669,5 +798,7 @@ void ParticleSystem::_free(){
 
 //     //for testing purposes
 //     psystem->checkNeighbors(5);
+//     psystem->dumpParticleInfo(0,6);
+
 //     return 0;
 // }
