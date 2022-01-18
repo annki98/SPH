@@ -5,6 +5,9 @@
 #include <random>
 #define _USE_MATH_DEFINES
 #include <math.h>
+#include "../Engine/Defs.h"
+#include <cuda_gl_interop.h>
+#include "../Shared/cudaErrorCheck.h"
 
 class Particle 
 {
@@ -66,13 +69,18 @@ class ParticleSystem{
              uint numParticles
              );
 
+    void gatherPositions(float4 * positions, //output
+                        Particle *particleArray,
+                        uint numParticles);
+
     void update(float deltaTime);
 
     // testing method to get all neighboring particles for a given indexed particle
-    void checkNeighbors(uint index);
+    void checkNeighbors(uint index, int numParticles);
+    void dumpParticleInfo(uint start, uint end);
 
     Particle* getParticleArray();
-    void dumpParticleInfo(uint start, uint end);
+    GLuint getVBO();
 
  protected:
     void _init(int numParticles);
@@ -81,7 +89,6 @@ class ParticleSystem{
     
     uint m_numParticles;
 
-    Particle* m_particleArray;
 
  private:
 
@@ -92,6 +99,10 @@ class ParticleSystem{
     // Option 2
     // const float m_mu = 10e-6;
 
+    //for OpenGL
+    float4* m_positions;
+    //GPU
+    Particle* m_particleArray;
     Particle* m_sortedParticleArray;
     
    //  float3* m_particles;
@@ -109,6 +120,11 @@ class ParticleSystem{
 
     uint* m_cellStart;
     uint* m_cellEnd;
+
+    //OpenGL
+    void _setGLArray();
+    GLuint m_vbo;
+    struct cudaGraphicsResource *m_cuda_vbo_resource;
 
 };
 

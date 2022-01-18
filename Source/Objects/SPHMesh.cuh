@@ -12,9 +12,14 @@ class SPHMesh : public Drawable
 {
 public:
     SPHMesh();
+    ~SPHMesh();
     void draw();
+    void updateParticles(float deltaTime);
 
+    void createBuffers();
 private:
 
+    ParticleSystem* m_psystem;
+    float time;
 };
 

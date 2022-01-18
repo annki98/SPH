@@ -6,12 +6,8 @@
 #include "helper_math.h"
 
 #include "particlegrid.cuh"
-#include "../Shared/cudaErrorCheck.h"
 
 namespace cg = cooperative_groups;
-
-
-constexpr int numElements = int(1e5);
 
 template<typename itT>
 void genRandomData(itT begin, itT end, int maxSize) {
@@ -48,6 +44,11 @@ __global__ void timeIntegrationD(Particle* particles,
     //TODO: write better integration scheme
     particles[index].velocity += acceleration * deltaTime;
     particles[index].position += particles[index].velocity * deltaTime;
+
+    if(particles[index].position.y < -0.5f){
+        particles[index].position.y = -0.5f;
+        particles[index].velocity *= 0.99; //Reduce velocity when "hitting" the ground 
+    }
 }
 
 
@@ -372,6 +373,17 @@ void calcSphD(Particle *particleArray,
         
     }   
 
+
+__global__ void gatherPositionsD(float4* positions, Particle* particleArray, uint numParticles)
+{
+    uint index = blockIdx.x *blockDim.x + threadIdx.x;
+
+    if (index >= numParticles) return;
+
+    positions[index] = make_float4(particleArray[index].position, 1.0);
+}
+
+
 int3 calcGridPos(float3 p, float3 worldOrigin, float3 cellSize)
 {
     int3 gridPos;
@@ -402,13 +414,6 @@ void computeGridSize(uint n, uint blockSize, uint &numBlocks, uint &numThreads)
     numThreads = min(blockSize, n);
     numBlocks = iDivUp(n, numThreads);
 }
-
-
-void printParticles(float3 * particles, int n){
-    for (int i = 0; i < n; i++)
-        std::cout << "Particle "<<particles[i].x<<", "<<particles[i].y<<", "<<particles[i].z<<std::endl;
-}
-
 
 void getNeighbors(float3 pos, uint* dSortedHash, uint* dSortedIndex, std::vector<uint> &neighborIndex, uint numParticles){
     // uint numThreads, numBlocks;
@@ -535,8 +540,7 @@ void ParticleSystem::calcHash(uint  *gridParticleHash,
 {
     uint numThreads, numBlocks;
     computeGridSize(numParticles, 256, numBlocks, numThreads);
-    std::cout<<"Num Blocks: "<<numBlocks<<", Num Threads: "<<numThreads<<std::endl;
-    // printParticles((float3 *)pos, 30);
+
     // execute the kernel
     calcHashD<<< numBlocks, numThreads >>>(gridParticleHash,gridParticleIndex, particles, numParticles);
 
@@ -617,30 +621,38 @@ void ParticleSystem::calcSph(Particle *particleArray, //write new properties to 
                                               numParticles);
     }
 
+void ParticleSystem::gatherPositions(float4* positions, Particle* particleArray, uint numParticles){
+    // thread per particle
+    uint numThreads, numBlocks;
+    computeGridSize(numParticles, 64, numBlocks, numThreads);
+
+    gatherPositionsD<<< numBlocks, numThreads >>>(positions, particleArray, numParticles);
+}
+
 void ParticleSystem::update(float deltaTime)
 {
 
     calcHash(m_dGridParticleHash, m_dGridParticleIndex, m_particleArray, m_numParticles);
 
     gpuErrchk( cudaDeviceSynchronize());
-    std::cout<<"------------\n";
-    for (int i = 0; i < 100; i++){
-        float3 p = m_particleArray[i].position;
-        std::cout << "Particle "<<p.x<<", "<<p.y<<", "<<p.z<<", "
-        <<"Hash: "<<m_dGridParticleHash[i]<<
-        ", Index: "<<m_dGridParticleIndex[i]<<std::endl;
-    }
+    // std::cout<<"------------\n";
+    // for (int i = 0; i < 100; i++){
+    //     float3 p = m_particleArray[i].position;
+    //     std::cout << "Particle "<<p.x<<", "<<p.y<<", "<<p.z<<", "
+    //     <<"Hash: "<<m_dGridParticleHash[i]<<
+    //     ", Index: "<<m_dGridParticleIndex[i]<<std::endl;
+    // }
 
 
     sortParticles(m_dGridParticleHash, m_dGridParticleIndex, m_dSortedParticleHash, m_dSortedParticleIndex, m_numParticles);
 
     gpuErrchk( cudaDeviceSynchronize());
-    std::cout<<"------ HASHING ------\n";
-    for (int i = 0; i < 100; i++){
-        float3 p = m_particleArray[m_dSortedParticleIndex[i]].position;
-        std::cout << "Particle "<<p.x<<", "<<p.y<<", "<<p.z
-                    <<", "<<"Hash: "<<m_dSortedParticleHash[i]<<", Index: "<<m_dSortedParticleIndex[i]<<std::endl;
-    }
+    // std::cout<<"------ HASHING ------\n";
+    // for (int i = 0; i < 100; i++){
+    //     float3 p = m_particleArray[m_dSortedParticleIndex[i]].position;
+    //     std::cout << "Particle "<<p.x<<", "<<p.y<<", "<<p.z
+    //                 <<", "<<"Hash: "<<m_dSortedParticleHash[i]<<", Index: "<<m_dSortedParticleIndex[i]<<std::endl;
+    // }
 
 
     reorderDataAndFindCellStart(m_cellStart,
@@ -653,16 +665,16 @@ void ParticleSystem::update(float deltaTime)
                                 m_numGridCells);
 
     gpuErrchk( cudaDeviceSynchronize());
-    std::cout<<"------ REORDERING AND SORTING ------\n";
-    for (int i = 0; i < 100; i++){
-        float3 p = m_sortedParticleArray[i].position;
-        int3 gridPos = calcGridPos(p, m_worldOrigin, m_cellSize);
-        uint gridHash = calcGridHash(gridPos, m_gridSize);
-        std::cout << "Particle "<<p.x<<", "<<p.y<<", "<<p.z
-                    <<", GridPos: "<<gridPos.x<<", "<<gridPos.y<<", "<<gridPos.z<<", Hash: "<<gridHash
-                    <<", Cell Start: "<<m_cellStart[gridHash]<<", Cell End: "<<m_cellEnd[gridHash]
-                    <<", Index: "<<m_dSortedParticleIndex[i]<<std::endl;
-    }
+    // std::cout<<"------ REORDERING AND SORTING ------\n";
+    // for (int i = 0; i < 100; i++){
+    //     float3 p = m_sortedParticleArray[i].position;
+    //     int3 gridPos = calcGridPos(p, m_worldOrigin, m_cellSize);
+    //     uint gridHash = calcGridHash(gridPos, m_gridSize);
+    //     std::cout << "Particle "<<p.x<<", "<<p.y<<", "<<p.z
+    //                 <<", GridPos: "<<gridPos.x<<", "<<gridPos.y<<", "<<gridPos.z<<", Hash: "<<gridHash
+    //                 <<", Cell Start: "<<m_cellStart[gridHash]<<", Cell End: "<<m_cellEnd[gridHash]
+    //                 <<", Index: "<<m_dSortedParticleIndex[i]<<std::endl;
+    // }
 
     //TODO: call calcSph
     calcSph(m_particleArray, 
@@ -672,16 +684,25 @@ void ParticleSystem::update(float deltaTime)
             m_dSortedParticleIndex, 
             m_numParticles);
     gpuErrchk( cudaDeviceSynchronize());   
-    dumpParticleInfo(0,3);
+    // dumpParticleInfo(0,3);
 
     timeIntegration(m_particleArray, deltaTime, m_numParticles);    
     gpuErrchk( cudaDeviceSynchronize());  
-    std::cout<<"======== AFTER TIME INTEGRATION =========\n"; 
-    dumpParticleInfo(0,3);
+    // std::cout<<"======== AFTER TIME INTEGRATION =========\n"; 
+    // dumpParticleInfo(0,3);
 
+
+    //map m_positions to be used with cuda
+    gpuErrchk(cudaGraphicsMapResources(1, &m_cuda_vbo_resource));
+    size_t num_bytes;
+    gpuErrchk(cudaGraphicsResourceGetMappedPointer((void **) &m_positions, &num_bytes, m_cuda_vbo_resource));
+
+    gatherPositions(m_positions, m_particleArray, m_numParticles);
+    // unmap
+    cudaGraphicsUnmapResources(1, &m_cuda_vbo_resource, 0);
 }
 
-void ParticleSystem::checkNeighbors(uint index){
+void ParticleSystem::checkNeighbors(uint index, int numElements){
 
     Particle testParticle = m_particleArray[index];
     float3 p = testParticle.position;
@@ -711,6 +732,10 @@ Particle* ParticleSystem::getParticleArray()
 {
     return m_particleArray;
 
+}
+
+GLuint ParticleSystem::getVBO(){
+    return m_vbo;
 }
 
 void ParticleSystem::dumpParticleInfo(uint start, uint end){
@@ -749,16 +774,27 @@ void ParticleSystem::_initParticles(int numParticles){
     
     for (auto it = m_particleArray; it != m_particleArray + numParticles; it++) {
         it->position = make_float3(pos(rng),pos(rng),pos(rng));
-        it->velocity = make_float3(rand()/float(RAND_MAX),0.f,0.f);
+        it->velocity = make_float3(0.f,0.f,0.f);
         it->mass = uniform_mass;
     }
 }
 
-void ParticleSystem::_init(int numParticles){
-   
+void ParticleSystem::_setGLArray(){
+    glGenBuffers(1, &m_vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
+    glBufferData(GL_ARRAY_BUFFER, m_numParticles*sizeof(float4), 0, GL_DYNAMIC_DRAW);
+    //glBufferSubData(GL_ARRAY_BUFFER, 0, m_numParticles *sizeof(float4), m_positions);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    gpuErrchk(cudaGraphicsGLRegisterBuffer(&m_cuda_vbo_resource, m_vbo, cudaGraphicsRegisterFlagsNone));
+}
 
-    gpuErrchk(cudaMallocManaged(&m_particleArray, numParticles * sizeof(Particle)));
-    gpuErrchk(cudaMallocManaged(&m_sortedParticleArray, numParticles * sizeof(Particle)));
+void ParticleSystem::_init(int numParticles){
+
+    uint size = numParticles * sizeof(Particle);
+    gpuErrchk(cudaMallocManaged(&m_particleArray, size));
+    gpuErrchk(cudaMallocManaged(&m_sortedParticleArray, size));
+
+    _setGLArray();
     _initParticles(numParticles);
 
     // gpuErrchk(cudaMallocManaged(&m_particles, numParticles * sizeof(float3)));
@@ -776,6 +812,7 @@ void ParticleSystem::_init(int numParticles){
 }
 
 void ParticleSystem::_free(){
+    delete [] m_positions;
     cudaFree(m_particleArray);
     cudaFree(m_sortedParticleArray);
     cudaFree(m_dGridParticleHash);
