@@ -93,6 +93,8 @@ add_executable(${PROJECT_NAME}
         #Source/sph_naive.cu
         Source/Objects/SPHMesh.cuh
         Source/Objects/SPHMesh.cu
+        Source/CudaGrid/particlegrid.cu
+        Source/CudaGrid/particlegrid.cuh
         )
 
 # target_compile_options(CudaTest PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${CUDA_OPTIONS}>)

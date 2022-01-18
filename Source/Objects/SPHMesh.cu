@@ -1,28 +1,46 @@
-//
-// Created by maxbr on 10.05.2020.
-//
-
 #include "SPHMesh.cuh"
 
-template<typename itT>
-void genRandomData(itT arr, int maxSize) {
-    std::random_device seed;
-    std::default_random_engine rng(seed());
-    std::uniform_real_distribution<float> dist(0, maxSize);
-    for (auto it = 0; it < maxSize; it++) {
-        arr[it] = glm::vec3(dist(rng),dist(rng),dist(rng));
-    }
-}
+// void genRandomData(glm::vec3* arr, int maxSize) {
+//     std::random_device seed;
+//     std::default_random_engine rng(seed());
+//     std::uniform_real_distribution<float> dist(0, maxSize);
+//     for (auto it = arr; it != arr + maxSize; it++) {
+//         *it = glm::vec3(dist(rng),dist(rng),dist(rng));
+//     }
+// }
+
+constexpr int numElements = int(1e5);
 
 SPHMesh::SPHMesh()
 {
-    
-    glm::vec3* ptrNative = static_cast<glm::vec3 *>(malloc(sizeof(glm::vec3) * 200));
-    //cudaMalloc((void**)&ptrNative, 200 * sizeof(ptrNative[0]));
-    genRandomData(&ptrNative[0], 50);
+    glm::vec3 *ptrNative, *ptrCuda;
+    ptrNative = static_cast<glm::vec3 *>(malloc(sizeof(glm::vec3) * numElements));
 
-    for(auto it = 0; it < 200; it++) {
-        m_vertices.push_back(glm::vec4(ptrNative[it], 1.0f));
+    cudaMalloc(&ptrCuda, sizeof(glm::vec3) * numElements);
+    cudaMemcpy(ptrCuda, ptrNative, sizeof(glm::vec3) * numElements, cudaMemcpyHostToDevice);
+
+    // genRandomData(&ptrCuda[0], 50);
+
+    cudaMemcpy(ptrNative, ptrCuda, sizeof(glm::vec3) * numElements, cudaMemcpyDeviceToHost);
+
+
+    // setup particle system
+    float3 hostWorldOrigin = make_float3(0.f,0.f,0.f);
+    float h = 1.f;
+    uint3  hostGridSize = make_uint3(64,64,64); // must be power of 2
+
+    ParticleSystem* psystem = new ParticleSystem(numElements, hostWorldOrigin, hostGridSize, h);
+
+    psystem->update();
+
+    //for testing purposes
+    psystem->checkNeighbors(5);
+
+
+    for(auto i = 0; i < numElements; i++) {
+        float3 pos = psystem->getParticleArray()[i].position;
+        glm::vec4 glPos = glm::vec4(pos.x, pos.y, pos.z ,1.0f);
+        m_vertices.push_back(glPos);
     }
 
     createBuffers();

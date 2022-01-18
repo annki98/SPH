@@ -608,6 +608,11 @@ void ParticleSystem::checkNeighbors(uint index){
     }
 }
 
+Particle* ParticleSystem::getParticleArray() 
+{
+    return m_particleArray;
+}
+
 void ParticleSystem::_initParticles(int numParticles){
     std::random_device seed;
     std::default_random_engine rng(seed());
@@ -652,17 +657,17 @@ void ParticleSystem::_free(){
     cudaFree(m_cellEnd);
 }
 
-int main() {
+// int main() {
 
-    float3 hostWorldOrigin = make_float3(0.f,0.f,0.f);
-    float h = 1.f;
-    uint3  hostGridSize = make_uint3(64,64,64); // must be power of 2
+//     float3 hostWorldOrigin = make_float3(0.f,0.f,0.f);
+//     float h = 1.f;
+//     uint3  hostGridSize = make_uint3(64,64,64); // must be power of 2
 
-    ParticleSystem* psystem = new ParticleSystem(numElements, hostWorldOrigin, hostGridSize, h);
+//     ParticleSystem* psystem = new ParticleSystem(numElements, hostWorldOrigin, hostGridSize, h);
 
-    psystem->update();
+//     psystem->update();
 
-    //for testing purposes
-    psystem->checkNeighbors(5);
-    return 0;
-}
+//     //for testing purposes
+//     psystem->checkNeighbors(5);
+//     return 0;
+// }

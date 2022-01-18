@@ -12,6 +12,8 @@
 #include "Objects/ScreenFillingQuad.h"
 #include "Objects/SPHMesh.cuh"
 
+#include "CudaGrid/particlegrid.cuh"
+
 #define STB_IMAGE_IMPLEMENTATION
 
 #include "stb_image.h"

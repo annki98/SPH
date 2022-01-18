@@ -62,15 +62,18 @@ class ParticleSystem{
     // testing method to get all neighboring particles for a given indexed particle
     void checkNeighbors(uint index);
 
+    Particle* getParticleArray();
+
  protected:
     void _init(int numParticles);
     void _initParticles(int numParticles);
     void _free();
-
- private:
+    
     uint m_numParticles;
 
     Particle* m_particleArray;
+
+ private:
     Particle* m_sortedParticleArray;
     
    //  float3* m_particles;

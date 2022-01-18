@@ -5,6 +5,7 @@
 #pragma once
 
 #include "../Engine/Drawable.h"
+#include "../CudaGrid/particlegrid.cuh"
 #include <random>
 
 class SPHMesh : public Drawable
