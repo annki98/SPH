@@ -9,7 +9,7 @@
 //     }
 // }
 
-constexpr int numElements = int(1e4);
+constexpr int numElements = int(5e3);
 
 SPHMesh::SPHMesh()
 {
@@ -29,24 +29,22 @@ SPHMesh::SPHMesh()
     float h = 1.f;
     uint3  hostGridSize = make_uint3(16,16,16); // must be power of 2
 
-    m_psystem = new ParticleSystem(numElements, hostWorldOrigin, hostGridSize, h);
+    m_psystem = std::make_unique<ParticleSystem>(numElements, hostWorldOrigin, hostGridSize, h);
 
     // m_psystem->update(0.01f);
-    //for testing purposes
-    // psystem->checkNeighbors(5, numElements);
-    // for(auto i = 0; i < numElements; i++) {
-    //     float3 pos = m_psystem->getParticleArray()[i].position;
-    //     glm::vec4 glPos = glm::vec4(pos.x, pos.y, pos.z ,1.0f);
-    //     m_vertices.push_back(glPos);
-    // }
+    // gpuErrchk( cudaDeviceSynchronize()); 
+    m_psystem->dumpParticleInfo(0,1);
+    // //for testing purposes
+    // // psystem->checkNeighbors(5, numElements);
+    // // for(auto i = 0; i < numElements; i++) {
+    // //     float3 pos = m_psystem->getParticleArray()[i].position;
+    // //     glm::vec4 glPos = glm::vec4(pos.x, pos.y, pos.z ,1.0f);
+    // //     m_vertices.push_back(glPos);
+    // // }
     // createBuffers();
 
 
     time = 0.f;
-}
-
-SPHMesh::~SPHMesh(){
-    delete m_psystem;
 }
 
 void SPHMesh::createBuffers()
@@ -130,11 +128,14 @@ void SPHMesh::updateParticles(float deltaTime){
     m_psystem->update(deltaTime);
     time += deltaTime;
 
-    if(time > 3.f){ //Debug info every 3 sec
-        time = 0.f;
-        gpuErrchk( cudaDeviceSynchronize());  
-        m_psystem->dumpParticleInfo(45,48);
-    }
+    // if(time > 3.f){ //Debug info every 3 sec
+    //     time = 0.f;
+    //     m_psystem->dumpParticleInfo(0,1);
+    //     //m_psystem->checkNeighbors(0, numElements);
+    // }
+    gpuErrchk( cudaDeviceSynchronize());  
+    // m_psystem->dumpParticleInfo(0,1);
+    //m_psystem->checkNeighbors(0, numElements);
     
     // NOTE: m_vertices is not used anymore: filled vbo is returned from psystem
     createBuffers();
@@ -143,5 +144,5 @@ void SPHMesh::updateParticles(float deltaTime){
 void SPHMesh::draw() 
 {
     glBindVertexArray(m_vao);
-    glDrawArrays(GL_POINTS, 0, numElements);
+    glDrawArrays(GL_POINTS, 0, m_psystem->numParticles());
 }

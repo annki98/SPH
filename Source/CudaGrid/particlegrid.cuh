@@ -17,9 +17,10 @@ class Particle
         float3 position;
         float density;
         float3 velocity;
-        float mass; //130.9 * (radius^3 /  96)
+        float mass;
         // float3 convecAccel; wird bei timeIntegration berechnet
         float3 viscosity;
+        bool isBoundary;
 };
 
 typedef unsigned int uint;
@@ -77,36 +78,40 @@ class ParticleSystem{
 
     // testing method to get all neighboring particles for a given indexed particle
     void checkNeighbors(uint index, int numParticles);
+    void getSortedNeighbors(float3 pos, std::vector<uint> &neighborIndex, uint numParticles);
     void dumpParticleInfo(uint start, uint end);
 
     Particle* getParticleArray();
     GLuint getVBO();
+    uint numParticles(){
+        return m_numAllParticles;
+    }
 
  protected:
     void _init(int numParticles);
     void _initParticles(int numParticles);
+    void _initBoundary(float extend, uint numLayers, float spacing);
     void _free();
     
     uint m_numParticles;
-
+    uint m_numBoundary;
+    uint m_numAllParticles;
 
  private:
 
-    const float3 m_gravity = make_float3(0,-9.81, 0);
+    const float3 m_gravity = make_float3(0.f,-9.81, 0.f);
     const float m_restingDensity = 1000.f;
     // Option 1
-    const float m_mu = float(10e-6) * m_restingDensity;
+    //const float m_mu = float(10e-6) * m_restingDensity;
     // Option 2
-    // const float m_mu = 10e-6;
+    const float m_nu = float(10e-6);
+    float m_spacing;
+    float m_fluidVolume;
+    float m_particleVolume;
+    float m_uniform_mass;
 
-    //for OpenGL
-    float4* m_positions;
-    //GPU
     Particle* m_particleArray;
     Particle* m_sortedParticleArray;
-    
-   //  float3* m_particles;
-   //  float3* m_sortedParticles;
 
     uint* m_dGridParticleHash;
     uint* m_dGridParticleIndex;
@@ -122,7 +127,7 @@ class ParticleSystem{
     uint* m_cellEnd;
 
     //OpenGL
-    void _setGLArray();
+    void _setGLArray(uint numParticles);
     GLuint m_vbo;
     struct cudaGraphicsResource *m_cuda_vbo_resource;
 

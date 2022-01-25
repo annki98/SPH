@@ -1,4 +1,5 @@
 #include <iostream>
+#include <iomanip>
 #include <random>
 #include <cub/cub.cuh>
 #include <chrono>
@@ -19,14 +20,15 @@ void genRandomData(itT begin, itT end, int maxSize) {
     }
 }
 
+
 __constant__ float3 worldOrigin;
 __constant__ float3 cellSize;
 __constant__ uint3  gridSize;
 __constant__ float smoothingRadius;
 __constant__ float3 gravity;
 __constant__ float restingDensity;
-__constant__ float mu; // how viscous is the fluid
-
+__constant__ float nu; // how viscous is the fluid
+__constant__ float V_i; // Volume of a particle
 
 __global__ void timeIntegrationD(Particle* particles,
                                 float deltaTime,
@@ -38,17 +40,76 @@ __global__ void timeIntegrationD(Particle* particles,
         return;
     }
 
+    float3 pos = particles[index].position;
+    float3 vel = particles[index].velocity;
+
+    // if(index == 0){
+    //     printf("pos before integrating: (%f,%f,%f)\n", pos.x, pos.y, pos.z);
+    //     printf("vel before integrating: (%f,%f,%f)\n", vel.x, vel.y, vel.z);
+    //     printf("-- pressureGradient:  (%f,%f,%f)\n", particles[index].pressureGradient.x, particles[index].pressureGradient.y, particles[index].pressureGradient.z);
+    //     printf("-- viscosity:  (%f,%f,%f)\n", particles[index].viscosity.x, particles[index].viscosity.y, particles[index].viscosity.z);
+    // }
     // equation (1)
-    float3 acceleration = gravity - particles[index].pressureGradient + particles[index].viscosity;
+    float3 acceleration = gravity + particles[index].pressureGradient + particles[index].viscosity;
+
+    // if(isnan(length(acceleration))){
+    //     printf("Acceleration - NaN: index [%u]\n", index);
+    // }
+    // if(index == 0){
+    //     printf("Acceleration = (%f,%f,%f).\n", acceleration.x, acceleration.y, acceleration.z);
+    // }
 
     //TODO: write better integration scheme
-    particles[index].velocity += acceleration * deltaTime;
-    particles[index].position += particles[index].velocity * deltaTime;
+    vel += acceleration * deltaTime;
+    pos += vel * deltaTime;
 
-    if(particles[index].position.y < -0.5f){
-        particles[index].position.y = -0.5f;
-        particles[index].velocity *= 0.99; //Reduce velocity when "hitting" the ground 
+    //Boundary Handling
+    
+
+    const float ground = -0.5f;
+    const float edge = gridSize.x * cellSize.x;//100.f;
+    const float ceiling = edge*2;
+    const float groundDamping = 0.99;
+    const float edgeDamping = 0.6;
+
+    // if(index == 0){
+    //     printf("pos before boundary handling: (%f,%f,%f)\n", pos.x, pos.y, pos.z);
+    //     printf("vel before boundary handling: (%f,%f,%f)\n", vel.x, vel.y, vel.z);
+    // }
+    //Ground
+    if(pos.y < ground){
+        pos.y = ground;
+        vel *= groundDamping; //Reduce velocity when "hitting" the ground 
     }
+    // //Ceiling
+    // if(pos.y > ceiling){
+    //     pos.y = ceiling;
+    //     vel *= edgeDamping; //Reduce velocity when hitting the ceiling
+    // }
+    // // Edges
+    // if( pos.x > edge){
+    //     pos.x = edge;
+    //     vel *= edgeDamping; //Reduce velocity when hitting the edge 
+    // }
+    // else if(pos.x < 0){
+    //     pos.x = 0;
+    //     vel *= edgeDamping;
+    // }
+    // if( pos.z > edge){
+    //     pos.z = edge;
+    //     vel *= edgeDamping;
+    // }
+    // else if(pos.z < 0){
+    //     pos.z = 0;
+    //     vel *= edgeDamping; 
+    // }
+
+    // if(index == 0){
+    //     printf("pos after boundary handling: (%f,%f,%f)\n", pos.x, pos.y, pos.z);
+    //     printf("vel after boundary handling: (%f,%f,%f)\n", vel.x, vel.y, vel.z);
+    // }
+    particles[index].position = pos;
+    particles[index].velocity = vel;
 }
 
 
@@ -151,10 +212,8 @@ void reorderDataAndFindCellStartD(uint   *cellStart,        // output: cell star
         // Now use the sorted index to reorder the pos and vel data
         uint sortedIndex = gridParticleIndex[index];
         Particle pos = oldParticles[sortedIndex];
-        // float4 vel = oldVel[sortedIndex];
 
         sortedParticles[index] = pos;
-        // sortedVel[index] = vel;
     }
 
 
@@ -164,10 +223,16 @@ __device__ float sphDensity(uint* cellStart,
                 uint* cellEnd,
                 int3 gridPos,
                 Particle *particles,
-                uint index){
-        float density = 0.f;
+                uint index,
+                uint originalIndex){
+
+        float sumWFluid = 0.f;
+        float sumWBound = 0.f;
+
         Particle particle = particles[index];
-        // printf("in density equation for Particle (%f,%f,%f) with density %f\n", particle.position.x,particle.position.y,particle.position.z,particle.density);
+        // if(originalIndex == 0){
+        //     printf("in density equation for Particle (%f,%f,%f) with density %f\n", particle.position.x,particle.position.y,particle.position.z,particle.density);
+        // }
         // go over all surrounding cells
         for (int z=-1; z<=1; z++)
         {
@@ -188,16 +253,35 @@ __device__ float sphDensity(uint* cellStart,
                             if(j != index) // exclude the particle itself from neighbors
                             {
                                 Particle neighborParticle = particles[j];
-                                float dist = length(neighborParticle.position - particle.position);
-                                // printf("-- neighbor (%f,%f,%f). Distance: %f, density %f\n", neighborParticle.position.x,neighborParticle.position.y,neighborParticle.position.z, dist, neighborParticle.density);
+
+                                float3 dVec = particle.position - neighborParticle.position;
+                                float dist = length(dVec);
+
                                 if(dist > smoothingRadius){
                                     //Dismiss
                                     continue;
                                 }
+                                
+                                
                                 //Density equation
                                 float denom = static_cast<float>(64 * M_PI * pow(smoothingRadius, 9));
-                                float add = neighborParticle.mass * (315 / denom) * pow(pow(smoothingRadius, 2) - pow(dist,2),3);
-                                density += add;
+                                float W = (315 / denom) * pow(pow(smoothingRadius, 2) - pow(dist,2),3);
+
+                                // if(neighborParticle.isBoundary){
+                                //     sumWBound += W;
+                                // }
+                                // else{
+                                //     sumWFluid += W;
+                                // }
+                                sumWFluid += W;
+                                // if(originalIndex == 0){
+
+                                //     printf("DENSITY -- neighbor (%f,%f,%f). Distance: %f, density %f: Contributing %f\n", neighborParticle.position.x,neighborParticle.position.y,neighborParticle.position.z, dist, neighborParticle.density, particle.mass*W);
+                                //     if(neighborParticle.isBoundary){
+                                //         printf("-- BOUNDARY\n");
+                                //     }
+                                // }
+                                    
                             }
                         }
 
@@ -205,6 +289,18 @@ __device__ float sphDensity(uint* cellStart,
                 }
             }
         }
+        // float gamma1 = 1.f;
+        // if(sumWBound > 0.f){
+        //     gamma1 = ((1.f/V_i) - sumWFluid)/sumWBound;
+        // }
+        // float density = (particle.mass * sumWFluid + gamma1 * particle.mass * sumWBound);
+        float density = particle.mass * sumWFluid;
+        // if(isnan(density)){
+        //     printf("DENSITY - NaN: index [%u]\n", originalIndex);
+        // }
+        // if(originalIndex == 0){
+        //     printf("Density = %f. \n",density);
+        // }
         return density;
 }
 
@@ -214,11 +310,18 @@ __device__ float3 sphPressureGradient(
                 uint* cellEnd,
                 int3 gridPos,
                 Particle *particles,
-                uint index){
+                uint index,
+                uint originalIndex){
 
-        float3 gradient = make_float3(0.0,0.0,0.0);
+        float3 sumFluid = make_float3(0.0f,0.0f,0.0f);
+        float3 sumBound = make_float3(0.0f,0.0f,0.0f);
+        // float3 sumNablaWFluid = make_float3(0.0f,0.0f,0.0f);
+        // float3 sumNablaWBound = make_float3(0.0f,0.0f,0.0f);
+
         Particle particle = particles[index];
         // go over all surrounding cells
+        int num = 0;
+
         for (int z=-1; z<=1; z++)
         {
             for (int y=-1; y<=1; y++)
@@ -238,27 +341,92 @@ __device__ float3 sphPressureGradient(
                             if(j != index) // exclude the particle itself from neighbors
                             {
                                 Particle neighborParticle = particles[j];
-                                // printf("-- neighbor (%f,%f,%f). Distance: %f, density %f\n", neighborParticle.position.x,neighborParticle.position.y,neighborParticle.position.z, dist, neighborParticle.density);
 
                                 float3 dVec = particle.position - neighborParticle.position;
                                 float dist = length(dVec);
-                                if(dist > smoothingRadius){
+                                if(dist > smoothingRadius || dist == 0.f){ //check for particle overlap
                                     //Dismiss
                                     continue;
                                 }
+                                // if(originalIndex == 0){
+                                //     printf("GRADIENT -- neighbor (%f,%f,%f). Distance: %f, Pressure %f, density %f.\n", neighborParticle.position.x,neighborParticle.position.y,neighborParticle.position.z, dist, neighborParticle.pressure, neighborParticle.density);
+                                //     if(neighborParticle.isBoundary){
+                                //         printf("-> BOUNDARY\n");
+                                //     }
+                                // }
+                                
+                                float3 NablaW = (-45 / (M_PI * pow(smoothingRadius,6))) * pow(smoothingRadius - dist,2) * dVec/dist;
+                                // if(originalIndex == 0){
+                                //     printf("NablaW = (%f,%f,%f).\n", NablaW.x,NablaW.y,NablaW.z);
+                                // }
 
-                                float temp = (particle.pressure/ pow(particle.density,2));
-                                float n_temp = (neighborParticle.pressure / pow(neighborParticle.density,2));
+                                // if(neighborParticle.isBoundary){
 
-                                gradient += dVec/dist * neighborParticle.mass * (temp + n_temp) * (-45 / (M_PI * pow(smoothingRadius,6)))
-                                            * pow(smoothingRadius - dist,2);
+                                //     float pi = (particle.pressure/ pow(particle.density,2));
+                                //     float pj = pi; // mirroring pressure at boundary
+                                //     sumNablaWBound += NablaW;
+                                //     sumBound += (pi + pj) * NablaW;
+                                // }
+                                // else{
+
+                                //     float pi = (particle.pressure/ pow(particle.density,2));
+                                //     float pj = (neighborParticle.pressure / pow(neighborParticle.density,2));
+                                //     sumNablaWFluid += NablaW;
+                                //     sumFluid += (pi + pj) * NablaW;
+                                
+                                // }
+                                float pi = (particle.pressure/ pow(particle.density,2));
+                                float pj = (neighborParticle.pressure / pow(neighborParticle.density,2));
+                                // if(originalIndex == 0){
+                                //     printf("IN GRADIENT: pi %f, pj %f.\n",pi,pj);
+                                // }
+                                // sumNablaWFluid += NablaW;
+                                float3 add = (pi + pj) * NablaW;
+                                // if(isnan(length(add))){
+                                //     float3 pos = particle.position;
+                                //     printf("Adding to Gradient - NaN: index [%u] at pos (%f,%f,%f). Density %f. pi = %f. pj = %f >>\n", originalIndex, pos.x,pos.y,pos.z, particle.density,pi,pj);
+                                //     printf(">> Distance = %f, NablaW = (%f,%f,%f).\n", dist, NablaW.x,NablaW.y,NablaW.z);
+                                // }
+
+                                sumFluid += add;
+                                num++;
                             }
                         }
                     }
                 }
             }
         }
+
+        float3 gradient = - particle.mass * sumFluid;
+        // if(isnan(gradient.x) || isnan(gradient.y) || isnan(gradient.z)){
+        //     float3 pos = particle.position;
+        //     printf("GRADIENT - NaN: index [%u] at pos (%f,%f,%f). Density %f. Number of neigbors = %u\n", originalIndex, pos.x,pos.y,pos.z, particle.density,num);
+        // }
         return gradient;
+
+        // float3 gamma2 = make_float3(0.f,0.f,0.f);
+        // float pi = 0.f;
+        // if(length(sumNablaWFluid) > 0 && length(sumNablaWBound) > 0){ // only if neighbours for boundary exist
+        //     pi = (particle.pressure/ pow(particle.density,2));
+        //     gamma2 = -(sumNablaWFluid*sumNablaWBound)/(sumNablaWBound*sumNablaWBound);
+        // }
+        // float3 gradientFluid = - particle.mass * sumFluid; 
+        // // if(originalIndex == 0){
+        // //     printf("IN GRADIENT: Density %f, Pressure %f, sumNablaWBound (%f,%f,%f).\n",particle.density, particle.pressure, sumNablaWBound.x,sumNablaWBound.y,sumNablaWBound.z);
+        // // }
+        
+        // float3 gradientBound = -((2*pi*particle.mass) * gamma2) * sumNablaWBound;
+        // // float3 gradientBound =  - particle.mass * sumBound;
+
+        // float3 gradient = gradientFluid + gradientBound;
+
+        // // if(originalIndex == 0){
+        // //     printf("GradientFluid = (%f,%f,%f), GradientBound = (%f,%f,%f)\n", gradientFluid.x,gradientFluid.y,gradientFluid.z,gradientBound.x,gradientBound.y,gradientBound.z);
+        // //     printf("Gradient = (%f,%f,%f), SumFluid = (%f,%f,%f).\n\n", gradient.x, gradient.y, gradient.z, sumFluid.x,sumFluid.y,sumFluid.z);
+        // //     // printf("Gradient = (%f,%f,%f), Gamma2 = (%f,%f,%f). SumFluid = (%f,%f,%f).\n", gradient.x, gradient.y, gradient.z,gamma2.x,gamma2.y,gamma2.z, sumFluid.x,sumFluid.y,sumFluid.z);
+
+        // // }
+        // return gradient;
 }
 
 
@@ -267,9 +435,10 @@ __device__ float3 sphViscosity(
                 uint* cellEnd,
                 int3 gridPos,
                 Particle *particles,
-                uint index){
+                uint index,
+                uint originalIndex){
 
-        float3 viscosity = make_float3(0.0,0.0,0.0);
+        float3 viscosity = make_float3(0.0f,0.0f,0.0f);
         Particle particle = particles[index];
         // go over all surrounding cells
         for (int z=-1; z<=1; z++)
@@ -298,15 +467,27 @@ __device__ float3 sphViscosity(
                                     //Dismiss
                                     continue;
                                 }
-                                viscosity += ((neighborParticle.velocity - particle.velocity) / neighborParticle.density)
+
+                                // if(originalIndex == 0){
+                                //     printf("VISCOSITY -- neighbor (%f,%f,%f). Distance: %f, density %f. ", neighborParticle.position.x,neighborParticle.position.y,neighborParticle.position.z, dist, neighborParticle.density);
+                                // }
+                                float3 add = ((neighborParticle.velocity - particle.velocity) / neighborParticle.density)
                                             * (neighborParticle.mass * (45/(M_PI * pow(smoothingRadius,6))) * (smoothingRadius - dist));
+                                viscosity += add;
+                                // if(originalIndex == 0){
+                                //     printf("adding (%f,%f,%f).\n", add.x,add.y,add.z);
+                                // }
                             }
                         }
                     }
                 }
             }
         }
-        return (mu / particle.density) * viscosity;
+        // if(isnan(length(viscosity))){
+        //     printf("Viscosity - NaN: index [%u]\n", originalIndex);
+        // }
+        // return (mu / particle.density) * viscosity;
+        return 2* nu * viscosity;
 }
 
 __global__
@@ -329,10 +510,10 @@ void calcDensityPressureD(Particle *oldParticles, // sorted particle array
 
     // SPH: density 
     float density = 0.0;
-    density = sphDensity(cellStart, cellEnd,gridPos, oldParticles, index);
+    density = sphDensity(cellStart, cellEnd,gridPos, oldParticles, index, originalIndex);
 
     // SPH: Pressure
-    float K = 2.f;//1481.f;
+    float K = 0.4f;
     float pressure = K * (density - restingDensity);
     
     oldParticles[index].density = density;
@@ -357,13 +538,15 @@ void calcSphD(Particle *particleArray,
 
         // get address in grid
         int3 gridPos = calcGridPos(part.position);
-    	
-        // SPH: Pressure gradient
-        float3 gradient = sphPressureGradient(cellStart, cellEnd, gridPos,oldParticles,index);
-        // SPH: viscosity
-        float3 viscosity = sphViscosity(cellStart,cellEnd,gridPos,oldParticles,index);
+    	uint originalIndex = gridParticleIndex[index];
 
-        uint originalIndex = gridParticleIndex[index];
+        // SPH: Pressure gradient
+        float3 gradient = sphPressureGradient(cellStart, cellEnd, gridPos,oldParticles,index, originalIndex);
+
+        // SPH: viscosity
+        float3 viscosity = sphViscosity(cellStart,cellEnd,gridPos,oldParticles,index,originalIndex);
+
+        
         
         // Update particle properties in the original array
         particleArray[originalIndex].density = part.density;
@@ -378,7 +561,9 @@ __global__ void gatherPositionsD(float4* positions, Particle* particleArray, uin
 {
     uint index = blockIdx.x *blockDim.x + threadIdx.x;
 
-    if (index >= numParticles) return;
+    if (index >= numParticles){
+        return;
+    }
 
     positions[index] = make_float4(particleArray[index].position, 1.0);
 }
@@ -454,17 +639,14 @@ void getNeighbors(float3 pos, uint* dSortedHash, uint* dSortedIndex, std::vector
     }
 }
 
-void getSortedNeighbors(float3 pos, uint* cellStart, uint* cellEnd, std::vector<uint> &neighborIndex, uint numParticles){
+void ParticleSystem::getSortedNeighbors(float3 pos, std::vector<uint> &neighborIndex, uint numParticles){
     // uint numThreads, numBlocks;
     // computeGridSize(numParticles, 64, numBlocks, numThreads);
-    
-    float3 cellSize = make_float3(2.f,2.f,2.f);
-    uint3  gridSize = make_uint3(64,64,64);
 
     int3 gridPos;
-    gridPos.x = floorf((pos.x) / cellSize.x);
-    gridPos.y = floorf((pos.y) / cellSize.y);
-    gridPos.z = floorf((pos.z) / cellSize.z);
+    gridPos.x = floorf((pos.x) / m_cellSize.x);
+    gridPos.y = floorf((pos.y) / m_cellSize.y);
+    gridPos.z = floorf((pos.z) / m_cellSize.z);
 
     printf("(%d,%d,%d)\n", gridPos.x, gridPos.y, gridPos.z);
     for (int z=-1; z<=1; z++)
@@ -475,15 +657,18 @@ void getSortedNeighbors(float3 pos, uint* cellStart, uint* cellEnd, std::vector<
             {
                 int3 neighborPos = gridPos + make_int3(x,y,z);
                 
-                neighborPos.x = neighborPos.x & (gridSize.x-1);  // wrap grid, assumes size is power of 2
-                neighborPos.y = neighborPos.y & (gridSize.y-1);
-                neighborPos.z = neighborPos.z & (gridSize.z-1);
-                uint neighborHash = neighborPos.z * gridSize.y * gridSize.x + neighborPos.y * gridSize.x + neighborPos.x;
+                neighborPos.x = neighborPos.x & (m_gridSize.x-1);  // wrap grid, assumes size is power of 2
+                neighborPos.y = neighborPos.y & (m_gridSize.y-1);
+                neighborPos.z = neighborPos.z & (m_gridSize.z-1);
+                uint neighborHash = neighborPos.z * m_gridSize.y * m_gridSize.x + neighborPos.y * m_gridSize.x + neighborPos.x;
                 // printf("\nNeighbor hash %d\n", neighborHash);
-                uint startIndex = cellStart[neighborHash];
+                uint startIndex = m_cellStart[neighborHash];
                 if(startIndex != 0xffffffff){
-                    for(uint i = cellStart[neighborHash]; i < cellEnd[neighborHash];i++){
-                        neighborIndex.push_back(i);
+                    for(uint i = m_cellStart[neighborHash]; i < m_cellEnd[neighborHash];i++){
+                        float3 nPos = m_sortedParticleArray[i].position;
+                        if(length(pos-nPos) <= m_cellSize.x){ //compare with h
+                            neighborIndex.push_back(i);
+                        }
                         // printf(" %d ", i);
                     }
                 }
@@ -497,11 +682,14 @@ void getSortedNeighbors(float3 pos, uint* cellStart, uint* cellEnd, std::vector<
 
 ParticleSystem::ParticleSystem(uint numParticles, float3 hostWorldOrigin, uint3 hostGridSize, float h):
     m_numParticles(numParticles),
+    m_numBoundary(0),
+    m_numAllParticles(0),
     m_particleArray(0),
     m_worldOrigin(hostWorldOrigin),
     m_sortedParticleArray(0),
     m_gridSize(hostGridSize),
-    m_cellSize(make_float3(h,h,h)) //cell size equals smoothing length
+    m_cellSize(make_float3(h,h,h)), //cell size equals smoothing length
+    m_uniform_mass(0.f)
 {
     gpuErrchk(cudaMemcpyToSymbol(worldOrigin, &m_worldOrigin, sizeof(float3)));
     gpuErrchk(cudaMemcpyToSymbol(smoothingRadius, &h, sizeof(float)));
@@ -511,14 +699,137 @@ ParticleSystem::ParticleSystem(uint numParticles, float3 hostWorldOrigin, uint3 
     // copy equation constants to gpu
     gpuErrchk(cudaMemcpyToSymbol(gravity, &m_gravity, sizeof(float3)));
     gpuErrchk(cudaMemcpyToSymbol(restingDensity, &m_restingDensity, sizeof(float)));
-    gpuErrchk(cudaMemcpyToSymbol(mu, &m_mu, sizeof(float)));
+    gpuErrchk(cudaMemcpyToSymbol(nu, &m_nu, sizeof(float)));
 
+    m_spacing = 0.3f;
     m_numGridCells = hostGridSize.x * hostGridSize.y * hostGridSize.z;
+    //m_fluidVolume = m_gridSize.x*m_cellSize.x * m_gridSize.y*m_cellSize.y * m_gridSize.z*m_cellSize.z;
+    m_fluidVolume = pow(m_spacing,3) * numParticles;
+    m_particleVolume = m_fluidVolume/numParticles;
+    gpuErrchk(cudaMemcpyToSymbol(V_i, &m_particleVolume, sizeof(float)));
+    // Option 1
+    m_uniform_mass = m_restingDensity * m_particleVolume; // rho_0 * V / n
+    // Option 2
+    //m_uniform_mass = m_restingDensity * (m_cellSize.x * m_cellSize.y *m_cellSize.z); // rho_0 * h^3
+
     _init(numParticles);
+}
+
+
+void ParticleSystem::_initParticles(int numParticles)
+{
+    // std::random_device seed;
+    // std::default_random_engine rng(seed());
+    // std::uniform_real_distribution<float> pos(0, m_gridSize.x*m_cellSize.x); //assumes all dims to be same size
+    
+    Particle* it = m_particleArray;
+
+    int width = 20;
+    int height = numParticles/(width*width);
+    int count = 0;
+    for(auto y = 0; y < height; y++){
+        for(auto z = 0; z < width; z++){
+            for(auto x = 0; x < width; x++){
+                
+                it->position = m_spacing*make_float3(x,y,z);
+                it->mass = m_uniform_mass;
+                it->isBoundary = false;
+                it++;
+                count++;
+            }
+        }
+    }
+
+    int rest = numParticles - (height*width*width);
+    int y = height;
+    for(auto i = 0; i < rest; i++){
+        int x = (i%width);
+        int z = (i/width);
+        it->position = m_spacing*make_float3(x,y,z);
+        it->mass = m_uniform_mass;
+        it->isBoundary = false;
+        it++;
+        count++;
+    }
+
+}
+
+void ParticleSystem::_initBoundary(float extend, uint numLayers, float spacing)
+{
+    
+    float height = -0.5f; //ground height
+    float middle = (m_cellSize.x*m_gridSize.x)/2;
+    //for now: only Ground considered
+    Particle* it = m_particleArray + m_numParticles;
+    int i = 0;
+    for(auto x = middle-extend/2; x < middle+extend/2; x += spacing){
+        for(auto z = middle-extend/2; z < middle+extend/2; z += spacing){
+            for(uint y = 0; y < numLayers; y++){
+                // printf("Boundary particle (%f,%f,%f) added.\n",x,y,z);
+                i++;
+                it->position = make_float3(x,height-spacing*y,z);
+                it->mass = m_uniform_mass;
+                it->isBoundary = true;
+                it++;
+            }
+        }
+    }
+    printf("%u boundary particles added!\n",i);
+}
+
+void ParticleSystem::_setGLArray(uint numParticles){
+    glGenBuffers(1, &m_vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
+    // glBufferData(GL_ARRAY_BUFFER, m_numParticles*sizeof(float4), 0, GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, numParticles*sizeof(float4), 0, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    gpuErrchk(cudaGraphicsGLRegisterBuffer(&m_cuda_vbo_resource, m_vbo, cudaGraphicsRegisterFlagsNone));
+}
+
+void ParticleSystem::_init(int numParticles)
+{
+    float boundaryExtend = 0;// 1.2f * m_gridSize.x *m_cellSize.x;
+    m_numBoundary = 0; //static_cast<uint>(pow(boundaryExtend/m_spacing,2)); // Boundary particles for uniform ground square
+
+    m_numAllParticles = numParticles + m_numBoundary;
+    uint size = (m_numAllParticles) * sizeof(Particle);
+
+    gpuErrchk(cudaMallocManaged(&m_particleArray, size));
+    gpuErrchk(cudaMallocManaged(&m_sortedParticleArray, size));
+
+    _setGLArray(m_numAllParticles);
+    _initParticles(numParticles);
+    gpuErrchk( cudaDeviceSynchronize());
+    // _initBoundary(boundaryExtend, 1, m_spacing);
+    // gpuErrchk( cudaDeviceSynchronize());
+
+    gpuErrchk(cudaMallocManaged(&m_dGridParticleHash, m_numAllParticles * sizeof(uint)));
+    gpuErrchk(cudaMallocManaged(&m_dGridParticleIndex, m_numAllParticles * sizeof(uint)));
+
+    gpuErrchk(cudaMallocManaged(&m_dSortedParticleHash, m_numAllParticles * sizeof(uint)));
+    gpuErrchk(cudaMallocManaged(&m_dSortedParticleIndex, m_numAllParticles * sizeof(uint)));
+
+    gpuErrchk(cudaMallocManaged(&m_cellStart, m_numGridCells * sizeof(uint)));
+    gpuErrchk(cudaMallocManaged(&m_cellEnd, m_numGridCells * sizeof(uint)));
+}
+
+void ParticleSystem::_free()
+{
+    gpuErrchk(cudaFree(m_particleArray));
+    gpuErrchk(cudaFree(m_sortedParticleArray));
+    gpuErrchk(cudaFree(m_dGridParticleHash));
+    gpuErrchk(cudaFree(m_dGridParticleIndex));
+    gpuErrchk(cudaFree(m_dSortedParticleHash));
+    gpuErrchk(cudaFree(m_dSortedParticleIndex));
+    gpuErrchk(cudaFree(m_cellStart));
+    gpuErrchk(cudaFree(m_cellEnd));
+    glDeleteBuffers(1, (const GLuint *)&m_vbo);
+    gpuErrchk(cudaGraphicsUnregisterResource(m_cuda_vbo_resource));
 }
 
 ParticleSystem::~ParticleSystem(){
     _free();
+    m_numParticles = 0;
 }
 
 void ParticleSystem::timeIntegration(Particle* particles,
@@ -612,6 +923,7 @@ void ParticleSystem::calcSph(Particle *particleArray, //write new properties to 
                                                             numParticles);
         gpuErrchk( cudaPeekAtLastError());
         gpuErrchk( cudaDeviceSynchronize());
+
         // calculate pressure gradient and viscosity
         calcSphD<<< numBlocks, numThreads >>>(particleArray,
                                               sortedParticles,
@@ -632,7 +944,7 @@ void ParticleSystem::gatherPositions(float4* positions, Particle* particleArray,
 void ParticleSystem::update(float deltaTime)
 {
 
-    calcHash(m_dGridParticleHash, m_dGridParticleIndex, m_particleArray, m_numParticles);
+    calcHash(m_dGridParticleHash, m_dGridParticleIndex, m_particleArray, m_numAllParticles);
 
     gpuErrchk( cudaDeviceSynchronize());
     // std::cout<<"------------\n";
@@ -644,7 +956,7 @@ void ParticleSystem::update(float deltaTime)
     // }
 
 
-    sortParticles(m_dGridParticleHash, m_dGridParticleIndex, m_dSortedParticleHash, m_dSortedParticleIndex, m_numParticles);
+    sortParticles(m_dGridParticleHash, m_dGridParticleIndex, m_dSortedParticleHash, m_dSortedParticleIndex, m_numAllParticles);
 
     gpuErrchk( cudaDeviceSynchronize());
     // std::cout<<"------ HASHING ------\n";
@@ -661,7 +973,7 @@ void ParticleSystem::update(float deltaTime)
                                 m_dSortedParticleHash,
                                 m_dSortedParticleIndex,
                                 m_particleArray,
-                                m_numParticles,
+                                m_numAllParticles,
                                 m_numGridCells);
 
     gpuErrchk( cudaDeviceSynchronize());
@@ -678,11 +990,11 @@ void ParticleSystem::update(float deltaTime)
 
     //TODO: call calcSph
     calcSph(m_particleArray, 
-            m_sortedParticleArray, 
+            m_sortedParticleArray,
             m_cellStart,
             m_cellEnd, 
             m_dSortedParticleIndex, 
-            m_numParticles);
+            m_numAllParticles);
     gpuErrchk( cudaDeviceSynchronize());   
     // dumpParticleInfo(0,3);
 
@@ -693,13 +1005,14 @@ void ParticleSystem::update(float deltaTime)
 
 
     //map m_positions to be used with cuda
+    float4* m_positions;
     gpuErrchk(cudaGraphicsMapResources(1, &m_cuda_vbo_resource));
     size_t num_bytes;
     gpuErrchk(cudaGraphicsResourceGetMappedPointer((void **) &m_positions, &num_bytes, m_cuda_vbo_resource));
 
-    gatherPositions(m_positions, m_particleArray, m_numParticles);
+    gatherPositions(m_positions, m_particleArray, m_numAllParticles);
     // unmap
-    cudaGraphicsUnmapResources(1, &m_cuda_vbo_resource, 0);
+    gpuErrchk(cudaGraphicsUnmapResources(1, &m_cuda_vbo_resource, 0));
 }
 
 void ParticleSystem::checkNeighbors(uint index, int numElements){
@@ -710,22 +1023,30 @@ void ParticleSystem::checkNeighbors(uint index, int numElements){
     
     std::vector<uint> neighbors;
 
-    getNeighbors(p, m_dSortedParticleHash, m_dSortedParticleIndex, neighbors, numElements);
-    printf("Without sorting: \n");
-    for(int i = 0; i < neighbors.size(); i++){
-        uint index = neighbors[i];
-        float3 neighPos = m_particleArray[index].position;
-        printf("Neighbor %d, pos (%f,%f,%f)\n", index, neighPos.x, neighPos.y, neighPos.z);
-    }
-
+    // getNeighbors(p, m_dSortedParticleHash, m_dSortedParticleIndex, neighbors, numElements);
+    // printf("Without sorting: \n");
+    // for(int i = 0; i < neighbors.size(); i++){
+    //     uint index = neighbors[i];
+    //     float3 neighPos = m_particleArray[index].position;
+    //     printf("Neighbor %d, pos (%f,%f,%f)\n", index, neighPos.x, neighPos.y, neighPos.z);
+    // }
+    gpuErrchk( cudaDeviceSynchronize());  
     neighbors.clear();
-    getSortedNeighbors(p, m_cellStart, m_cellEnd, neighbors, numElements);
+    getSortedNeighbors(p, neighbors, numElements);
     printf("\nWith sorting: \n");
     for(int i = 0; i < neighbors.size(); i++){
         uint index = neighbors[i];
         float3 neighPos = m_sortedParticleArray[index].position;
-        printf("Neighbor %d, pos (%f,%f,%f)\n", index, neighPos.x, neighPos.y, neighPos.z);
+        printf("Neighbor %d, pos (%f,%f,%f). Dist is %f.", index, neighPos.x, neighPos.y, neighPos.z,length(p-neighPos));
+        if(m_sortedParticleArray[index].isBoundary){
+            printf("- BOUNDARY");
+        }
+        printf("\n");
+        
     }
+    printf("num: %u\n", int(neighbors.size()));
+
+    gpuErrchk( cudaDeviceSynchronize());  
 }
 
 Particle* ParticleSystem::getParticleArray() 
@@ -739,10 +1060,11 @@ GLuint ParticleSystem::getVBO(){
 }
 
 void ParticleSystem::dumpParticleInfo(uint start, uint end){
+    gpuErrchk( cudaDeviceSynchronize());  
     for(auto i = start; i<end;i++){
 
         Particle p = m_particleArray[i];
-        std::cout << "["<<i<<"]: " << "Position: (" << p.position.x <<","
+        std::cout << std::setprecision(6) << "["<<i<<"]: " << "Position: (" << p.position.x <<","
                                                         <<p.position.y<<","
                                                         <<p.position.z <<")\n"
                                     << "Velocity: (" << p.velocity.x <<","
@@ -756,72 +1078,12 @@ void ParticleSystem::dumpParticleInfo(uint start, uint end){
                                     << "Viscosity: (" << p.viscosity.x <<","
                                                             <<p.viscosity.y<<","
                                                             <<p.viscosity.z <<")\n"
-                                    << "Mass: "<< p.mass << std::endl;
+                                    << "Mass: "<< p.mass << "\n"
+                                    << "Is Boundary: "<< p.isBoundary << std::endl;
     }
+    gpuErrchk( cudaDeviceSynchronize());  
 }
 
-void ParticleSystem::_initParticles(int numParticles){
-
-    // Option 1
-    float volume = m_gridSize.x*m_cellSize.x * m_gridSize.y*m_cellSize.y * m_gridSize.z*m_cellSize.z;
-    float uniform_mass = m_restingDensity * (volume/numParticles); // rho_0 * V / n
-    // Option 2
-    // float uniform_mass = m_restingDensity * (m_cellSize.x * m_cellSize.y *m_cellSize.z); // rho_0 * h^3
-
-    std::random_device seed;
-    std::default_random_engine rng(seed());
-    std::uniform_real_distribution<float> pos(0, m_gridSize.x*m_cellSize.x); //assumes all dims to be same size
-    
-    for (auto it = m_particleArray; it != m_particleArray + numParticles; it++) {
-        it->position = make_float3(pos(rng),pos(rng),pos(rng));
-        it->velocity = make_float3(0.f,0.f,0.f);
-        it->mass = uniform_mass;
-    }
-}
-
-void ParticleSystem::_setGLArray(){
-    glGenBuffers(1, &m_vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
-    glBufferData(GL_ARRAY_BUFFER, m_numParticles*sizeof(float4), 0, GL_DYNAMIC_DRAW);
-    //glBufferSubData(GL_ARRAY_BUFFER, 0, m_numParticles *sizeof(float4), m_positions);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    gpuErrchk(cudaGraphicsGLRegisterBuffer(&m_cuda_vbo_resource, m_vbo, cudaGraphicsRegisterFlagsNone));
-}
-
-void ParticleSystem::_init(int numParticles){
-
-    uint size = numParticles * sizeof(Particle);
-    gpuErrchk(cudaMallocManaged(&m_particleArray, size));
-    gpuErrchk(cudaMallocManaged(&m_sortedParticleArray, size));
-
-    _setGLArray();
-    _initParticles(numParticles);
-
-    // gpuErrchk(cudaMallocManaged(&m_particles, numParticles * sizeof(float3)));
-    // gpuErrchk(cudaMallocManaged(&m_sortedParticles, numParticles * sizeof(float3)));
-    // genRandomData(m_particles, m_particles + numParticles, m_gridSize.x*m_cellSize.x); //assumes all dims to be same size
-    
-    gpuErrchk(cudaMallocManaged(&m_dGridParticleHash, numParticles * sizeof(uint)));
-    gpuErrchk(cudaMallocManaged(&m_dGridParticleIndex, numParticles * sizeof(uint)));
-
-    gpuErrchk(cudaMallocManaged(&m_dSortedParticleHash, numParticles * sizeof(uint)));
-    gpuErrchk(cudaMallocManaged(&m_dSortedParticleIndex, numParticles * sizeof(uint)));
-
-    gpuErrchk(cudaMallocManaged(&m_cellStart, m_numGridCells * sizeof(uint)));
-    gpuErrchk(cudaMallocManaged(&m_cellEnd, m_numGridCells * sizeof(uint)));
-}
-
-void ParticleSystem::_free(){
-    delete [] m_positions;
-    cudaFree(m_particleArray);
-    cudaFree(m_sortedParticleArray);
-    cudaFree(m_dGridParticleHash);
-    cudaFree(m_dGridParticleIndex);
-    cudaFree(m_dSortedParticleHash);
-    cudaFree(m_dSortedParticleIndex);
-    cudaFree(m_cellStart);
-    cudaFree(m_cellEnd);
-}
 
 // int main() {
 
