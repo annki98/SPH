@@ -25,8 +25,8 @@ protected:
     GLuint m_indexlist; //!< A Vertex Buffer Object for storing vertex indices
     GLuint m_tangentbuffer; //!< A Vertex Buffer Object for storing vertex tangents
 
-    int m_numberOfPoints; //!< Number of all vertices
-    int m_numberOfIndices; //!< Number of all indices
+    size_t m_numberOfPoints; //!< Number of all vertices
+    size_t m_numberOfIndices; //!< Number of all indices
 
     std::vector<glm::vec4> m_vertices; //!< A list of all vertex positions
     std::vector<glm::vec3> m_normals; //!< A list of all vertex normals

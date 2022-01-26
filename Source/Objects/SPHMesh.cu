@@ -1,28 +1,10 @@
 #include "SPHMesh.cuh"
 
-// void genRandomData(glm::vec3* arr, int maxSize) {
-//     std::random_device seed;
-//     std::default_random_engine rng(seed());
-//     std::uniform_real_distribution<float> dist(0, maxSize);
-//     for (auto it = arr; it != arr + maxSize; it++) {
-//         *it = glm::vec3(dist(rng),dist(rng),dist(rng));
-//     }
-// }
+constexpr int numElements = int(1e3);
 
-constexpr int numElements = int(5e3);
-
-SPHMesh::SPHMesh()
+SPHMesh::SPHMesh(std::shared_ptr<State> state)
 {
-    glm::vec3 *ptrNative, *ptrCuda;
-    ptrNative = static_cast<glm::vec3 *>(malloc(sizeof(glm::vec3) * numElements));
-
-    cudaMalloc(&ptrCuda, sizeof(glm::vec3) * numElements);
-    cudaMemcpy(ptrCuda, ptrNative, sizeof(glm::vec3) * numElements, cudaMemcpyHostToDevice);
-
-    // genRandomData(&ptrCuda[0], 50);
-
-    cudaMemcpy(ptrNative, ptrCuda, sizeof(glm::vec3) * numElements, cudaMemcpyDeviceToHost);
-
+    m_state = state;
 
     // setup particle system
     float3 hostWorldOrigin = make_float3(0.f,0.f,0.f);
@@ -45,6 +27,32 @@ SPHMesh::SPHMesh()
 
 
     time = 0.f;
+
+    m_renderingMode = "Points";
+    m_sphereRadius = 3.0f;
+
+    // Setup shaders for sphere rendering
+    m_vertexSphereShader = std::make_shared<Shader>(std::string(SHADERPATH) + "/Sphere.vert");
+    m_fragmentSphereShader = std::make_shared<Shader>(std::string(SHADERPATH) + "/Sphere.frag");
+
+    m_shpereShaderProgram = std::make_unique<ShaderProgram>("Sphere");
+    m_shpereShaderProgram->addShader(m_vertexSphereShader);
+    m_shpereShaderProgram->addShader(m_fragmentSphereShader);
+
+    m_shpereShaderProgram->link();
+    m_shpereShaderProgram->use();
+
+
+    // Setup basic shader (red)
+    m_vertexBasicShader = std::make_shared<Shader>(std::string(SHADERPATH) + "/Basic.vert");
+    m_fragmentBasicShader = std::make_shared<Shader>(std::string(SHADERPATH) + "/Basic.frag");
+
+    m_basicShaderProgram = std::make_unique<ShaderProgram>("Basic");
+    m_basicShaderProgram->addShader(m_vertexBasicShader);
+    m_basicShaderProgram->addShader(m_fragmentBasicShader);
+
+    m_basicShaderProgram->link();
+    m_basicShaderProgram->use();
 }
 
 void SPHMesh::createBuffers()
@@ -72,10 +80,6 @@ void SPHMesh::createBuffers()
 
     if(m_tangentbuffer == 0 && !m_tangents.empty())
     {
-        if(m_tangents.empty())
-        {
-            //
-        }
         glGenBuffers(1, &m_tangentbuffer);
         glBindBuffer(GL_ARRAY_BUFFER, m_tangentbuffer);
         glBufferData(GL_ARRAY_BUFFER, m_tangents.size() * sizeof(glm::vec3), &m_tangents[0], GL_STATIC_DRAW);
@@ -141,8 +145,51 @@ void SPHMesh::updateParticles(float deltaTime){
     createBuffers();
 }
 
+void SPHMesh::drawGUI() 
+{
+    ImGui::Begin("SPH Mesh");
+ 
+    // Combo Box to select either point rendering or sphere particle representation
+    const char* items[] = { "Points", "Spheres" };
+    
+    if (ImGui::BeginCombo("##combo", m_renderingMode))
+    {
+        for (int n = 0; n < IM_ARRAYSIZE(items); n++)
+        {
+            bool is_selected = (m_renderingMode == items[n]);
+            if (ImGui::Selectable(items[n], is_selected))
+                m_renderingMode = items[n];
+            if (is_selected)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    ImGui::Text("Rendering mode");
+
+    // Sphere size
+    ImGui::SliderFloat("Sphere radius", &m_sphereRadius, 1.0f, 100.0f);
+    ImGui::End();
+}
+
 void SPHMesh::draw() 
 {
+    drawGUI();
+    
+    if(strcmp(m_renderingMode, "Points") == 0) {
+        glPointSize(10.0f);
+        m_basicShaderProgram->use();
+        m_basicShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
+        m_basicShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
+    }   else {
+        glPointSize(m_sphereRadius * 100.0f); // offset for sphere rendering in shader
+        m_shpereShaderProgram->use();
+        m_shpereShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
+        m_shpereShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
+        m_shpereShaderProgram->setFloat("sphereRadius", m_sphereRadius);
+        m_shpereShaderProgram->setVec2("resolution", glm::vec2(m_state->getWidth(), m_state->getHeight()));
+    }
+
     glBindVertexArray(m_vao);
     glDrawArrays(GL_POINTS, 0, m_psystem->numParticles());
 }

@@ -68,7 +68,7 @@ void updateImGuiTheme()
     colors[ImGuiCol_PopupBg] = ImVec4(0.08f, 0.08f, 0.08f, 0.94f);
     colors[ImGuiCol_Border] = ImVec4(0.08f, 0.10f, 0.12f, 1.00f);
     colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-    colors[ImGuiCol_FrameBg] = ImVec4(0.20f, 0.25f, 0.29f, 0.80f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.20f, 0.25f, 0.39f, 1.00f);
     colors[ImGuiCol_FrameBgHovered] = ImVec4(0.12f, 0.20f, 0.28f, 1.00f);
     colors[ImGuiCol_FrameBgActive] = ImVec4(0.09f, 0.12f, 0.14f, 1.00f);
     colors[ImGuiCol_TitleBg] = ImVec4(0.09f, 0.12f, 0.14f, 0.65f);
@@ -192,24 +192,11 @@ int main()
     // enable docking
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.ConfigDockingWithShift = false;
-
-    //std::unique_ptr<Triangle> triangle = std::make_unique<Triangle>();
     
-    std::unique_ptr<SPHMesh> sphmesh = std::make_unique<SPHMesh>();
-
-
-    std::shared_ptr<Shader> basicVertexShader = std::make_shared<Shader>(std::string(SHADERPATH) + "/Basic.vert");
-    std::shared_ptr<Shader> basicFragmentShader = std::make_shared<Shader>(std::string(SHADERPATH) + "/Basic.frag");
-
-    std::unique_ptr<ShaderProgram> basicShaderProgram = std::make_unique<ShaderProgram>("Basic");
-    basicShaderProgram->addShader(basicVertexShader);
-    basicShaderProgram->addShader(basicFragmentShader);
-
-    basicShaderProgram->link();
-    basicShaderProgram->use();
-
     // Init state system
     std::shared_ptr<State> state = std::make_shared<State>(WIDTH, HEIGHT);
+
+    std::unique_ptr<SPHMesh> sphmesh = std::make_unique<SPHMesh>(state);
 
     // screen filling quad
     std::unique_ptr<ScreenFillingQuad> sfq = std::make_unique<ScreenFillingQuad>(state);
@@ -250,10 +237,6 @@ int main()
         glBindFramebuffer(GL_FRAMEBUFFER, sceneFBO->getID());
         glClearColor(0.8f, 0.8f, 1.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        
-        basicShaderProgram->use();
-        basicShaderProgram->setMat4("projectionMatrix", *state->getCamera()->getProjectionMatrix());
-        basicShaderProgram->setMat4("viewMatrix", *state->getCamera()->getViewMatrix());
 
         sphmesh->updateParticles(deltaTime);
         sphmesh->draw();
