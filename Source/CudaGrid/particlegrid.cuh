@@ -90,7 +90,8 @@ class ParticleSystem{
  protected:
     void _init(int numParticles);
     void _initParticles(int numParticles);
-    void _initBoundary(float extend, uint numLayers, float spacing);
+    void _initGammas();
+    void _initBoundary(int extend, float spacing);
     void _free();
     
     uint m_numParticles;
@@ -99,12 +100,14 @@ class ParticleSystem{
 
  private:
 
-    const float3 m_gravity = make_float3(0.f,-9.81, 0.f);
+    const float3 m_gravity = make_float3(0.f,-9.81f, 0.f);
     const float m_restingDensity = 1000.f;
     // Option 1
-    //const float m_mu = float(10e-6) * m_restingDensity;
+    const float m_mu = float(1.5673e-3);
     // Option 2
-    const float m_nu = float(10e-6);
+    // const float m_nu = float(10e-6);
+
+    float m_h;
     float m_spacing;
     float m_fluidVolume;
     float m_particleVolume;

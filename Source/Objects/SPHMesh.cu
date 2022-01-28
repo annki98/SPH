@@ -8,14 +8,14 @@ SPHMesh::SPHMesh(std::shared_ptr<State> state)
 
     // setup particle system
     float3 hostWorldOrigin = make_float3(0.f,0.f,0.f);
-    float h = 1.f;
-    uint3  hostGridSize = make_uint3(16,16,16); // must be power of 2
+    float h = 1.f/4.f;
+    uint3  hostGridSize = make_uint3(64,64,64); // must be power of 2
 
     m_psystem = std::make_unique<ParticleSystem>(numElements, hostWorldOrigin, hostGridSize, h);
 
     // m_psystem->update(0.01f);
     // gpuErrchk( cudaDeviceSynchronize()); 
-    m_psystem->dumpParticleInfo(0,1);
+    // m_psystem->dumpParticleInfo(0,1);
     // //for testing purposes
     // // psystem->checkNeighbors(5, numElements);
     // // for(auto i = 0; i < numElements; i++) {
@@ -129,15 +129,15 @@ void SPHMesh::createBuffers()
 
 void SPHMesh::updateParticles(float deltaTime){
 
-    m_psystem->update(deltaTime);
+    m_psystem->update(0.01*deltaTime);
     time += deltaTime;
-
+    //printf("dt %f.",deltaTime);
     // if(time > 3.f){ //Debug info every 3 sec
     //     time = 0.f;
     //     m_psystem->dumpParticleInfo(0,1);
     //     //m_psystem->checkNeighbors(0, numElements);
     // }
-    gpuErrchk( cudaDeviceSynchronize());  
+    // gpuErrchk( cudaDeviceSynchronize());  
     // m_psystem->dumpParticleInfo(0,1);
     //m_psystem->checkNeighbors(0, numElements);
     
@@ -191,5 +191,6 @@ void SPHMesh::draw()
     }
 
     glBindVertexArray(m_vao);
-    glDrawArrays(GL_POINTS, 0, m_psystem->numParticles());
+    // glDrawArrays(GL_POINTS, 0, m_psystem->numParticles());
+    glDrawArrays(GL_POINTS, 0, numElements);
 }
