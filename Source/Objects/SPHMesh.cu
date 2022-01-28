@@ -1,6 +1,6 @@
 #include "SPHMesh.cuh"
 
-constexpr int numElements = int(1e3);
+constexpr int numElements = int(2e3);
 
 SPHMesh::SPHMesh(std::shared_ptr<State> state)
 {
@@ -129,7 +129,7 @@ void SPHMesh::createBuffers()
 
 void SPHMesh::updateParticles(float deltaTime){
 
-    m_psystem->update(0.01*deltaTime);
+    m_psystem->update(deltaTime);
     time += deltaTime;
     //printf("dt %f.",deltaTime);
     // if(time > 3.f){ //Debug info every 3 sec
@@ -139,7 +139,7 @@ void SPHMesh::updateParticles(float deltaTime){
     // }
     // gpuErrchk( cudaDeviceSynchronize());  
     // m_psystem->dumpParticleInfo(0,1);
-    //m_psystem->checkNeighbors(0, numElements);
+    //m_psystem->checkNeighbors(0, m_psystem->numParticles());
     
     // NOTE: m_vertices is not used anymore: filled vbo is returned from psystem
     createBuffers();
@@ -191,6 +191,6 @@ void SPHMesh::draw()
     }
 
     glBindVertexArray(m_vao);
-    // glDrawArrays(GL_POINTS, 0, m_psystem->numParticles());
-    glDrawArrays(GL_POINTS, 0, numElements);
+    glDrawArrays(GL_POINTS, 0, m_psystem->numParticles()); // use this to draw ALL particles (including Boundary particles)
+    // glDrawArrays(GL_POINTS, 0, numElements);            // use this to draw only fluid particles
 }

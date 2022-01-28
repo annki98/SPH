@@ -212,7 +212,7 @@ int main()
     glPointSize(10.0f);
 
     // move camera to a position where mesh is visible
-    state->getCamera()->setCameraPosition(glm::vec3(2.f, 4.0f, 4.0f));
+    state->getCamera()->setCameraPosition(glm::vec3(2.f, 4.0f, 6.0f));
     //state->getCamera()->lookAt(glm::vec3(20.f,40.f, 20.f), glm::vec3(0.f,1.f,0.f), glm::vec3(0.f,1.f,0.f));
 
     while(!glfwWindowShouldClose(window))
