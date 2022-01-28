@@ -1085,3 +1085,9 @@ void ParticleSystem::dumpParticleInfo(uint start, uint end){
     }
     gpuErrchk( cudaDeviceSynchronize());  
 }
+
+void ParticleSystem::resetParticles(uint numParticles)
+{
+    gpuErrchk(cudaDeviceSynchronize());
+    _init(m_numParticles);
+}

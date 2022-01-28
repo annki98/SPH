@@ -80,6 +80,7 @@ class ParticleSystem{
     void checkNeighbors(uint index, int numParticles);
     void getSortedNeighbors(float3 pos, std::vector<uint> &neighborIndex, uint numParticles);
     void dumpParticleInfo(uint start, uint end);
+    void resetParticles(uint numParticles);
 
     Particle* getParticleArray();
     GLuint getVBO();

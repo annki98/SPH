@@ -205,15 +205,12 @@ int main()
 
     // FBO for rendering the scene
     std::unique_ptr<FBO> sceneFBO = std::make_unique<FBO>(WIDTH, HEIGHT, 2);
-    
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sceneFBO->getColorAttachment(0), 0);
-
-    // set larger point size so points are properly visible on higher res screens
-    glPointSize(10.0f);
 
     // move camera to a position where mesh is visible
     state->getCamera()->setCameraPosition(glm::vec3(2.f, 4.0f, 6.0f));
-    //state->getCamera()->lookAt(glm::vec3(20.f,40.f, 20.f), glm::vec3(0.f,1.f,0.f), glm::vec3(0.f,1.f,0.f));
+
+    glEnable(GL_DEPTH_TEST);
 
     while(!glfwWindowShouldClose(window))
     {
@@ -256,8 +253,10 @@ int main()
         ImGui::Text("%s", std::string("Frames per Second: " + std::to_string(1.0f / deltaTime)).c_str());
         ImGui::End();
 
-
         // Render dear imgui into screen
+
+        // Adjust widget width so labels are readable
+        ImGui::PushItemWidth(400);
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 

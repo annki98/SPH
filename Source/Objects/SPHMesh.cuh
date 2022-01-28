@@ -29,6 +29,7 @@ private:
     // GUI specific
     const char* m_renderingMode;
     float m_sphereRadius;
+    bool m_renderBoundaries;
 
     // Rendering specific
     std::shared_ptr<Shader> m_vertexBasicShader;

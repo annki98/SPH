@@ -30,6 +30,7 @@ SPHMesh::SPHMesh(std::shared_ptr<State> state)
 
     m_renderingMode = "Points";
     m_sphereRadius = 3.0f;
+    m_renderBoundaries = true;
 
     // Setup shaders for sphere rendering
     m_vertexSphereShader = std::make_shared<Shader>(std::string(SHADERPATH) + "/Sphere.vert");
@@ -167,8 +168,15 @@ void SPHMesh::drawGUI()
     ImGui::SameLine();
     ImGui::Text("Rendering mode");
 
-    // Sphere size
+    // Sphere radius for rendering
     ImGui::SliderFloat("Sphere radius", &m_sphereRadius, 1.0f, 100.0f);
+
+    // Toggle whether to render boundary walls
+    ImGui::Checkbox("Draw Boundaries", &m_renderBoundaries);
+
+    // Reset particle simulation
+    if(ImGui::Button("Reset particles"))
+        m_psystem->resetParticles(numElements);
     ImGui::End();
 }
 
@@ -191,6 +199,9 @@ void SPHMesh::draw()
     }
 
     glBindVertexArray(m_vao);
-    glDrawArrays(GL_POINTS, 0, m_psystem->numParticles()); // use this to draw ALL particles (including Boundary particles)
-    // glDrawArrays(GL_POINTS, 0, numElements);            // use this to draw only fluid particles
+
+    if(m_renderBoundaries)
+        glDrawArrays(GL_POINTS, 0, m_psystem->numParticles()); // use this to draw ALL particles (including Boundary particles)
+    else
+        glDrawArrays(GL_POINTS, 0, numElements);               // use this to draw only fluid particles
 }
