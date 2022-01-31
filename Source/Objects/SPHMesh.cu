@@ -1,6 +1,7 @@
 #include "SPHMesh.cuh"
 
 constexpr int numElements = int(2e3);
+constexpr int sphereSections = int(12);
 
 SPHMesh::SPHMesh(std::shared_ptr<State> state)
 {
@@ -54,6 +55,20 @@ SPHMesh::SPHMesh(std::shared_ptr<State> state)
 
     m_basicShaderProgram->link();
     m_basicShaderProgram->use();
+
+    // Setup shader with model matrix
+    m_vertexBasicWithModelShader = std::make_shared<Shader>(std::string(SHADERPATH) + "/BasicWithModel.vert");
+    m_fragmentBasicWithModelShader = std::make_shared<Shader>(std::string(SHADERPATH) + "/BasicWithModel.frag");
+
+    m_basicWithModelShaderProgram = std::make_unique<ShaderProgram>("Basic");
+    m_basicWithModelShaderProgram->addShader(m_vertexBasicWithModelShader);
+    m_basicWithModelShaderProgram->addShader(m_fragmentBasicWithModelShader);
+
+    m_basicWithModelShaderProgram->link();
+    m_basicWithModelShaderProgram->use();
+
+    // Setup sphere vertices and normals for rendering
+    setupSphere(glm::vec3(0), m_sphereRadius / 100.0f, sphereSections);
 }
 
 void SPHMesh::createBuffers()
@@ -128,6 +143,88 @@ void SPHMesh::createBuffers()
 }
 
 
+void SPHMesh::setupSphere(glm::vec3 center, float radius, int resolution)
+{
+	// iniatialize the variable we are going to use
+	float u, v;
+	float phi, theta;
+	float x, y, z;
+	int offset = 0, i, j;
+
+	// create points
+	for ( j = 0; j <= resolution; j++)  //theta
+		for ( i = 0; i <= resolution; i++) //phi
+		{
+			u = i /(float)resolution;		phi   = 2* glm::pi<float>() * u;
+			v = j /(float)resolution;		theta =    glm::pi<float>() * v;
+
+			x = center.x + radius * sin(theta) * sin(phi);
+			y = center.y + radius * cos(theta);
+			z = center.z + radius * sin(theta) * cos(phi);
+
+			m_sphereVertices.push_back(glm::vec4( x, y, z, 1.0f));
+			m_sphereNormals.push_back(glm::vec3( x, y, z) / radius);
+		}
+
+	// create index list
+	for ( j = 0; j < resolution; j++)
+	{
+		for ( i = 0; i < resolution; i++)
+		{
+			// 1. Triangle
+			m_sphereIndices.push_back( offset + i );
+			m_sphereIndices.push_back( offset + i + resolution+1);
+			m_sphereIndices.push_back( offset + i + resolution+1 + 1);
+
+			// 2. Triangle
+			m_sphereIndices.push_back( offset + i + resolution+1 + 1);
+			m_sphereIndices.push_back( offset + i + 1);
+			m_sphereIndices.push_back( offset + i );
+		}
+		offset += resolution+1;
+	}
+
+    // setup buffers for real sphere rendering
+    glGenBuffers(1, &m_vboSphere);
+    glBindBuffer(GL_ARRAY_BUFFER, m_vboSphere);
+    glBufferData(GL_ARRAY_BUFFER, m_sphereVertices.size() * sizeof(glm::vec4), &m_sphereVertices[0], GL_STATIC_DRAW);
+
+    glGenBuffers(1, &m_normalbuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, m_normalbuffer);
+    glBufferData(GL_ARRAY_BUFFER, m_sphereVertices.size() * sizeof(glm::vec3), &m_sphereNormals[0], GL_STATIC_DRAW);
+
+    glGenBuffers(1, &m_indexBufferSphere);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_indexBufferSphere);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, m_sphereIndices.size() * sizeof(unsigned int), &m_sphereIndices[0], GL_STATIC_DRAW);
+
+    glGenVertexArrays(1, &m_vaoSphere);
+    glBindVertexArray(m_vaoSphere);
+
+    glBindBuffer(GL_ARRAY_BUFFER, m_vboSphere);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, 0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, m_normalbuffer);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_indexBufferSphere);
+
+    glBindVertexArray(m_vaoSphere);
+
+    glDisableVertexAttribArray(1);
+    glDisableVertexAttribArray(2);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_vboSphere);
+}
+
+
+void SPHMesh::setDepthtexture(GLuint depthTexture)
+{
+    m_depthTexture = depthTexture;
+}
+
+
 void SPHMesh::updateParticles(float deltaTime){
 
     m_psystem->update(deltaTime);
@@ -151,7 +248,7 @@ void SPHMesh::drawGUI()
     ImGui::Begin("SPH Mesh");
  
     // Combo Box to select either point rendering or sphere particle representation
-    const char* items[] = { "Points", "Spheres" };
+    const char* items[] = { "Points", "Flat Spheres", "Real Spheres" };
     
     if (ImGui::BeginCombo("##combo", m_renderingMode))
     {
@@ -189,19 +286,44 @@ void SPHMesh::draw()
         m_basicShaderProgram->use();
         m_basicShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
         m_basicShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
-    }   else {
+
+        if(m_renderBoundaries)
+            glDrawArrays(GL_POINTS, 0, m_psystem->numParticles()); // use this to draw ALL particles (including Boundary particles)
+        else
+            glDrawArrays(GL_POINTS, 0, numElements);               // use this to draw only fluid particles
+    }   else if (strcmp(m_renderingMode, "Flat Spheres") == 0) {
         glPointSize(m_sphereRadius * 100.0f); // offset for sphere rendering in shader
         m_shpereShaderProgram->use();
         m_shpereShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
         m_shpereShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
         m_shpereShaderProgram->setFloat("sphereRadius", m_sphereRadius);
         m_shpereShaderProgram->setVec2("resolution", glm::vec2(m_state->getWidth(), m_state->getHeight()));
+        if(m_renderBoundaries)
+            glDrawArrays(GL_POINTS, 0, m_psystem->numParticles()); // use this to draw ALL particles (including Boundary particles)
+        else
+            glDrawArrays(GL_POINTS, 0, numElements);               // use this to draw only fluid particles
+    }   else {
+        gpuErrchk(cudaDeviceSynchronize());
+        glBindVertexArray(m_vaoSphere);
+        m_basicWithModelShaderProgram->use();
+        m_basicWithModelShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
+        m_basicWithModelShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
+         for(auto i = 0; i < numElements; i++) {
+            float3 pos = m_psystem->getParticleArray()[i].position;
+            glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(pos.x, pos.y, pos.z));
+            m_basicWithModelShaderProgram->setMat4("modelMatrix", modelMatrix);
+            glDrawArrays(GL_TRIANGLES, 0, m_sphereVertices.size());
+         }
+
+                     // render boundaries cheaply
+
+            glBindVertexArray(m_vao);       
+            glPointSize(10.0f);
+            m_basicShaderProgram->use();
+            m_basicShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
+            m_basicShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
+
+            if(m_renderBoundaries)
+                glDrawArrays(GL_POINTS, numElements, m_psystem->numParticles()); 
     }
-
-    glBindVertexArray(m_vao);
-
-    if(m_renderBoundaries)
-        glDrawArrays(GL_POINTS, 0, m_psystem->numParticles()); // use this to draw ALL particles (including Boundary particles)
-    else
-        glDrawArrays(GL_POINTS, 0, numElements);               // use this to draw only fluid particles
 }

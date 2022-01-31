@@ -65,14 +65,10 @@ GLuint createDepthBufferAttachment(size_t width, size_t height)
     GLuint depthAttachement;
     glGenTextures(1, &depthAttachement);
 
-
     glBindTexture(GL_TEXTURE_2D, depthAttachement);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, width, height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, 0);
 
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT16, width, height, 0,GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthAttachement, 0);
 
     return depthAttachement;
 }
@@ -97,6 +93,7 @@ FBO::FBO(size_t width, size_t height, size_t numberOfColorAttachments)
     glBindFramebuffer(GL_FRAMEBUFFER, m_fboID);
     m_numberOfColorAttachments = numberOfColorAttachments;
     m_colorAttachments = createColorAttachments(m_width, m_height, m_numberOfColorAttachments);
+    m_depthAttachment = createDepthBufferAttachment(m_width, m_height);
 
 }
 
@@ -113,6 +110,11 @@ void FBO::bind()
 GLuint FBO::getID()
 {
     return m_fboID;
+}
+
+GLuint FBO::getDepthAttachment()
+{
+    return m_depthAttachment;
 }
 
 GLuint FBO::getColorAttachment(size_t i)

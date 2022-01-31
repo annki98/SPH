@@ -33,8 +33,9 @@ public:
     void bind();
 
     GLuint getID();
-
     GLuint getColorAttachment(size_t i);
+    GLuint getDepthAttachment();
+
 
 private:
     size_t m_width, m_height;
@@ -42,5 +43,6 @@ private:
 
     size_t m_numberOfColorAttachments;
     GLuint *m_colorAttachments;
+    GLuint m_depthAttachment;
 
 };

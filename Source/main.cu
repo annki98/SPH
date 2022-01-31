@@ -204,8 +204,9 @@ int main()
     double startTime = glfwGetTime();
 
     // FBO for rendering the scene
-    std::unique_ptr<FBO> sceneFBO = std::make_unique<FBO>(WIDTH, HEIGHT, 2);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sceneFBO->getColorAttachment(0), 0);
+    std::unique_ptr<FBO> sceneFBO = std::make_unique<FBO>(WIDTH, HEIGHT, 1);
+    sphmesh->setDepthtexture(sceneFBO->getDepthAttachment());
+    //glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sceneFBO->getColorAttachment(0), 0);
 
     // move camera to a position where mesh is visible
     state->getCamera()->setCameraPosition(glm::vec3(2.f, 4.0f, 6.0f));
