@@ -24,12 +24,11 @@ SPHMesh::SPHMesh(std::shared_ptr<State> state)
     // //     glm::vec4 glPos = glm::vec4(pos.x, pos.y, pos.z ,1.0f);
     // //     m_vertices.push_back(glPos);
     // // }
-    // createBuffers();
-
+    createBuffers();
 
     time = 0.f;
 
-    m_renderingMode = "Points";
+    m_renderingMode = "Real Spheres";
     m_sphereRadius = 3.0f;
     m_renderBoundaries = true;
 
@@ -132,7 +131,7 @@ void SPHMesh::createBuffers()
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_indexlist);
 
-    glBindVertexArray(m_vao);
+    glBindVertexArray(0);
 
     glDisableVertexAttribArray(1);
     glDisableVertexAttribArray(2);
@@ -210,10 +209,10 @@ void SPHMesh::setupSphere(glm::vec3 center, float radius, int resolution)
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_indexBufferSphere);
 
-    glBindVertexArray(m_vaoSphere);
+    glBindVertexArray(0);
 
+    glDisableVertexAttribArray(0);
     glDisableVertexAttribArray(1);
-    glDisableVertexAttribArray(2);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_vboSphere);
 }
@@ -228,7 +227,7 @@ void SPHMesh::setDepthtexture(GLuint depthTexture)
 void SPHMesh::updateParticles(float deltaTime){
 
     m_psystem->update(deltaTime);
-    time += deltaTime;
+    // time += deltaTime;
     //printf("dt %f.",deltaTime);
     // if(time > 3.f){ //Debug info every 3 sec
     //     time = 0.f;
@@ -238,9 +237,6 @@ void SPHMesh::updateParticles(float deltaTime){
     // gpuErrchk( cudaDeviceSynchronize());  
     // m_psystem->dumpParticleInfo(0,1);
     //m_psystem->checkNeighbors(0, m_psystem->numParticles());
-    
-    // NOTE: m_vertices is not used anymore: filled vbo is returned from psystem
-    createBuffers();
 }
 
 void SPHMesh::drawGUI() 
@@ -280,50 +276,58 @@ void SPHMesh::drawGUI()
 void SPHMesh::draw() 
 {
     drawGUI();
-    
-    if(strcmp(m_renderingMode, "Points") == 0) {
+
+    if (strcmp(m_renderingMode, "Points") == 0)
+    {
+        glBindVertexArray(m_vao);
         glPointSize(10.0f);
         m_basicShaderProgram->use();
         m_basicShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
         m_basicShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
 
-        if(m_renderBoundaries)
+        if (m_renderBoundaries)
             glDrawArrays(GL_POINTS, 0, m_psystem->numParticles()); // use this to draw ALL particles (including Boundary particles)
         else
-            glDrawArrays(GL_POINTS, 0, numElements);               // use this to draw only fluid particles
-    }   else if (strcmp(m_renderingMode, "Flat Spheres") == 0) {
+            glDrawArrays(GL_POINTS, 0, numElements); // use this to draw only fluid particles
+    }
+    else if (strcmp(m_renderingMode, "Flat Spheres") == 0)
+    {
+        glBindVertexArray(m_vao);
         glPointSize(m_sphereRadius * 100.0f); // offset for sphere rendering in shader
         m_shpereShaderProgram->use();
         m_shpereShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
         m_shpereShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
         m_shpereShaderProgram->setFloat("sphereRadius", m_sphereRadius);
         m_shpereShaderProgram->setVec2("resolution", glm::vec2(m_state->getWidth(), m_state->getHeight()));
-        if(m_renderBoundaries)
+        if (m_renderBoundaries)
             glDrawArrays(GL_POINTS, 0, m_psystem->numParticles()); // use this to draw ALL particles (including Boundary particles)
         else
-            glDrawArrays(GL_POINTS, 0, numElements);               // use this to draw only fluid particles
-    }   else {
+            glDrawArrays(GL_POINTS, 0, numElements); // use this to draw only fluid particles
+    }
+    else
+    {
         gpuErrchk(cudaDeviceSynchronize());
         glBindVertexArray(m_vaoSphere);
         m_basicWithModelShaderProgram->use();
         m_basicWithModelShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
         m_basicWithModelShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
-         for(auto i = 0; i < numElements; i++) {
+        for (auto i = 0; i < numElements; i++)
+        {
             float3 pos = m_psystem->getParticleArray()[i].position;
             glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(pos.x, pos.y, pos.z));
             m_basicWithModelShaderProgram->setMat4("modelMatrix", modelMatrix);
-            glDrawArrays(GL_TRIANGLES, 0, m_sphereVertices.size());
-         }
+            glDrawElements(GL_TRIANGLES, m_sphereIndices.size(), GL_UNSIGNED_INT, 0);
+        }
 
-                     // render boundaries cheaply
+        // render boundaries cheaply
 
-            glBindVertexArray(m_vao);       
-            glPointSize(10.0f);
-            m_basicShaderProgram->use();
-            m_basicShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
-            m_basicShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
+        glBindVertexArray(m_vao);
+        glPointSize(10.0f);
+        m_basicShaderProgram->use();
+        m_basicShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
+        m_basicShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
 
-            if(m_renderBoundaries)
-                glDrawArrays(GL_POINTS, numElements, m_psystem->numParticles()); 
+        if (m_renderBoundaries)
+            glDrawArrays(GL_POINTS, numElements, m_psystem->numParticles());
     }
 }
