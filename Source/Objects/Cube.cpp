@@ -11,14 +11,11 @@ Cube::Cube(float size)
 
 void Cube::create(float size)
 {
-    GLfloat vertices[] = { 
-		-1.0f,  1.0f,  1.0f,  -1.0f, -1.0f,  1.0f,   1.0f, -1.0f,  1.0f,   1.0f,  1.0f,  1.0f,
-		-1.0f,  1.0f, -1.0f,  -1.0f, -1.0f, -1.0f,  -1.0f, -1.0f,  1.0f,  -1.0f,  1.0f,  1.0f,
-		 1.0f,  1.0f,  1.0f,   1.0f, -1.0f,  1.0f,   1.0f, -1.0f, -1.0f,   1.0f,  1.0f, -1.0f,
-		-1.0f,  1.0f, -1.0f,  -1.0f,  1.0f,  1.0f,   1.0f,  1.0f,  1.0f,   1.0f,  1.0f, -1.0f,
-		-1.0f, -1.0f,  1.0f,  -1.0f, -1.0f, -1.0f,   1.0f, -1.0f, -1.0f,   1.0f, -1.0f,  1.0f,
-		 1.0f,  1.0f, -1.0f,   1.0f, -1.0f, -1.0f,  -1.0f, -1.0f, -1.0f,  -1.0f,  1.0f, -1.0f
-    	};
+    glm::vec3 vertices[] = {glm::vec3(-1,1,1), glm::vec3(-1,-1,1), glm::vec3(1,-1,1), glm::vec3(1,1,1),
+                 glm::vec3(-1,1,1), glm::vec3(-1,1,-1), glm::vec3(1,1,-1), glm::vec3(1,1,1),
+                  glm::vec3(1,-1,1), glm::vec3(1,-1,-1), glm::vec3(1,1,-1),
+                  glm::vec3(1,-1,-1), glm::vec3(-1,-1,-1),glm::vec3(-1,1,-1),
+                  glm::vec3(-1,-1,-1), glm::vec3(-1,-1,1)};
     
     GLfloat normals[] = {        
          0.0f,  0.0f,  1.0f,    0.0f,  0.0f,  1.0f,    0.0f,  0.0f,  1.0f,    0.0f,  0.0f,  1.0f,
@@ -38,12 +35,12 @@ void Cube::create(float size)
 		0.0f,  1.0f,    0.0f,  0.0f,    1.0f,  0.0f,    1.0f,  1.0f
     	};
 
-	m_points = 24;
+	m_points = 16;
 	m_indices = 36;
 
 	for(int i=0; i<m_points; i++)
 	{
-        m_vertices.push_back(glm::vec4( vertices[i*3] * size, vertices[i*3+1] * size, vertices[i*3+2] * size, 1.0f));
+        m_vertices.push_back(glm::vec4(vertices[i].x * size, vertices[i].y * size, vertices[i].z * size, 1.0f));
 		m_normals.push_back(glm::vec3( normals[i*3], normals[i*3+1], normals[i*3+2]));
 		m_uvs.push_back(glm::vec2( texCoords[i*2], texCoords[i*2+1]));
 	}

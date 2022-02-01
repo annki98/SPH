@@ -84,6 +84,9 @@ class ParticleSystem{
 
     Particle* getParticleArray();
     GLuint getVBO();
+    float getSpacing() {
+        return m_spacing;
+    }
     uint numParticles(){
         return m_numAllParticles;
     }

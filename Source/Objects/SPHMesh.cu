@@ -295,7 +295,7 @@ void SPHMesh::draw()
         m_shpereShaderProgram->use();
         m_shpereShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
         m_shpereShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
-        m_shpereShaderProgram->setFloat("sphereRadius", m_sphereRadius);
+        m_shpereShaderProgram->setFloat("sphereRadius", m_psystem->getSpacing() * m_sphereRadius);
         m_shpereShaderProgram->setVec2("resolution", glm::vec2(m_state->getWidth(), m_state->getHeight()));
         glDrawArrays(GL_POINTS, 0, numElements); // use this to draw only fluid particles
     }
@@ -309,7 +309,7 @@ void SPHMesh::draw()
         for (auto i = 0; i < numElements; i++)
         {
             float3 pos = m_psystem->getParticleArray()[i].position;
-            glm::mat4 modelMatrix = glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(pos.x, pos.y, pos.z)), glm::vec3(m_sphereRadius));
+            glm::mat4 modelMatrix = glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(pos.x, pos.y, pos.z)), glm::vec3(m_psystem->getSpacing() * m_sphereRadius));
             m_basicWithModelShaderProgram->setMat4("modelMatrix", modelMatrix);
             glDrawElements(GL_TRIANGLES, m_sphereIndices.size(), GL_UNSIGNED_INT, 0);
         }
