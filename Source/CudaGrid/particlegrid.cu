@@ -680,19 +680,55 @@ void ParticleSystem::_initBoundary(int extend, float spacing)
         for(auto z = 0; z < extend; z++){
             // printf("Boundary particle (%f,%f,%f) added.\n",x,y,z);
             i++;
-            it->position = m_spacing*make_float3((middle - extend/2 + x),0.f, middle - extend/2 + z);
+            it->position = m_spacing * make_float3((middle - extend/2 + x),0.f, middle - extend/2 + z);
             it->mass = m_uniform_mass;
             it->isBoundary = true;
             it++;
         }
     }
 
-    // Wall 1
+    // Wall 1 (back)
     for(auto x = 0; x < extend; x++){
         for(auto y = 0; y < extend; y++){
             // printf("Boundary particle (%f,%f,%f) added.\n",x,y,z);
             i++;
-            it->position = m_spacing*make_float3(middle - extend/2 + x, middle - extend/2 + y, 0.f);
+            it->position = m_spacing * make_float3(middle - extend/2 + x, middle - extend/2 + y + 1, 0.f);
+            it->mass = m_uniform_mass;
+            it->isBoundary = true;
+            it++;
+        }
+    }
+
+    // Wall 2 (front)
+    for(auto x = 0; x < extend; x++){
+        for(auto y = 0; y < extend; y++){
+            // printf("Boundary particle (%f,%f,%f) added.\n",x,y,z);
+            i++;
+            it->position = m_spacing  *make_float3(middle - extend/2 + x, middle - extend/2 + y + 1, extend - 1);
+            it->mass = m_uniform_mass;
+            it->isBoundary = true;
+            it++;
+        }
+    }
+
+    // Wall 3 (left)
+    for(auto y = 0; y < extend; y++){
+        for(auto z = 0; z < extend; z++){
+            // printf("Boundary particle (%f,%f,%f) added.\n",x,y,z);
+            i++;
+            it->position = m_spacing * make_float3(0.f, middle - extend/2 + y + 1, middle - extend/2 + z);
+            it->mass = m_uniform_mass;
+            it->isBoundary = true;
+            it++;
+        }
+    }
+
+    // Wall 4 (right)
+    for(auto y = 0; y < extend; y++){
+        for(auto z = 0; z < extend; z++){
+            // printf("Boundary particle (%f,%f,%f) added.\n",x,y,z);
+            i++;
+            it->position = m_spacing * make_float3(extend -1, middle - extend/2 + y + 1, middle - extend/2 + z);
             it->mass = m_uniform_mass;
             it->isBoundary = true;
             it++;
@@ -715,7 +751,7 @@ void ParticleSystem::_setGLArray(uint numParticles){
 void ParticleSystem::_init(int numParticles)
 {
     int boundaryWidth = static_cast<int>(1.0f * m_gridSize.x *m_cellSize.x);
-    m_numBoundary = static_cast<uint>(pow(boundaryWidth,2)) * 2; // Boundary particles for 1 uniform ground square + 1 wall
+    m_numBoundary = static_cast<uint>(pow(boundaryWidth,2)) * 5; // Boundary particles for 1 uniform ground square + 1 wall
 
     m_numAllParticles = numParticles + m_numBoundary;
     uint size = (m_numAllParticles) * sizeof(Particle);
