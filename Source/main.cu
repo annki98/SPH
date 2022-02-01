@@ -206,12 +206,11 @@ int main()
     // FBO for rendering the scene
     std::unique_ptr<FBO> sceneFBO = std::make_unique<FBO>(WIDTH, HEIGHT, 1);
     sphmesh->setDepthtexture(sceneFBO->getDepthAttachment());
+        
     //glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sceneFBO->getColorAttachment(0), 0);
 
     // move camera to a position where mesh is visible
     state->getCamera()->setCameraPosition(glm::vec3(2.f, 4.0f, 6.0f));
-
-    glEnable(GL_DEPTH_TEST);
 
     while(!glfwWindowShouldClose(window))
     {
@@ -232,8 +231,10 @@ int main()
         state->setTime(glfwGetTime());
         state->setDeltaTime(deltaTime);
 
-        // First pass for water
-        glBindFramebuffer(GL_FRAMEBUFFER, sceneFBO->getID());
+        glEnable(GL_DEPTH_TEST);
+
+        // First pass for SPH
+        sceneFBO->bind();
         glClearColor(0.8f, 0.8f, 1.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
