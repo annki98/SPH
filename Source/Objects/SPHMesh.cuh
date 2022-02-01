@@ -35,6 +35,7 @@ private:
     const char* m_renderingMode;
     float m_sphereRadius;
     bool m_renderBoundaries;
+    bool m_renderBoundaryParticles;
 
     // Rendering specific
     std::unique_ptr<Cube> m_cube;

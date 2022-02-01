@@ -4,6 +4,8 @@ out vec4 fragColor;
 in vec4 passPosition;
 in vec3 passNormal;
 
+uniform vec3 color;
+
 const vec3 lightPosition = vec3(500.0f, 500.0f, 500.0f);
 
 void main(){
@@ -23,7 +25,8 @@ void main(){
 
 	// colors for the different phong effects
     vec3 ambientColor = vec3(0.3, 0.2, 0.2);
-    vec3 diffuseColor = vec3(1.0, 0.0, 0.0);
+    // vec3 diffuseColor = vec3(1.0, 0.0, 0.0);
+    vec3 diffuseColor = color;
     vec3 specularColor = vec3(1.0, 1.0, 1.0);
 
     fragColor = vec4(
