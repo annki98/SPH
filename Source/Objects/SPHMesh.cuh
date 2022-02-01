@@ -5,6 +5,7 @@
 #pragma once
 
 #include "../Engine/Drawable.h"
+#include "../Objects/Cube.h"
 #include "../CudaGrid/particlegrid.cuh"
 #include "../Engine/State.h"
 #include "../Engine/Shader.h"
@@ -25,6 +26,7 @@ private:
     void drawGUI();
     std::unique_ptr<ParticleSystem> m_psystem;
     float time;
+    uint3 m_hostGridSize;
 
     std::shared_ptr<State> m_state;
 
@@ -34,6 +36,8 @@ private:
     bool m_renderBoundaries;
 
     // Rendering specific
+    std::unique_ptr<Cube> m_cube;
+
     std::shared_ptr<Shader> m_vertexBasicShader;
     std::shared_ptr<Shader> m_fragmentBasicShader;
     std::unique_ptr<ShaderProgram> m_basicShaderProgram;

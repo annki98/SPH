@@ -9,7 +9,6 @@ uniform vec2 resolution;
 
 out vec2 passPointPos;
 out vec4 passPos;
-out float passPointSize;
 
 const float PI = 3.1415926535897932384626433832795;
 
@@ -22,7 +21,7 @@ void main()
     vec3 posEye = vec3(viewMatrix * vec4(pos, 1.0));
     float dist = length(posEye);
     float scaleNormalization = resolution.y / tan(90.0 * PI / 180.0);
-    passPointSize = sphereRadius * (scaleNormalization / dist);
+    
 
     vec2 posDepthless = gl_Position.xy / gl_Position.w;
     passPointPos = resolution * (posDepthless * 0.5 + 0.5);

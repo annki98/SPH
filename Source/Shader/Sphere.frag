@@ -2,7 +2,6 @@
 
 in vec2 passPointPos;
 in vec4 passPos;
-in float passPointSize;
 
 uniform float sphereRadius;
 uniform vec2 resolution;
@@ -19,7 +18,7 @@ float map(float value, float min1, float max1, float min2, float max2) {
 void main()
 {
     vec2 sphereConstraint = (passPointPos - gl_FragCoord.xy) * passPos.w;
-    float rSquare = dot(sphereConstraint, sphereConstraint) / (sphereRadius * 200.0); // offset for sphere radius
+    float rSquare = dot(sphereConstraint, sphereConstraint) / (sphereRadius * 300.0); // offset for sphere radius
     
     if (rSquare > 1.0) 
         discard; // draw as circles

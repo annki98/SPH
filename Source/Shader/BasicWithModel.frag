@@ -4,7 +4,7 @@ out vec4 fragColor;
 in vec4 passPosition;
 in vec3 passNormal;
 
-uniform vec3 lightPosition;
+const vec3 lightPosition = vec3(500.0f, 500.0f, 500.0f);
 
 void main(){
     //compute the light vector as the normalized vector between 

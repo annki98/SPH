@@ -10,9 +10,11 @@ SPHMesh::SPHMesh(std::shared_ptr<State> state)
     // setup particle system
     float3 hostWorldOrigin = make_float3(0.f,0.f,0.f);
     float h = 1.f/4.f;
-    uint3  hostGridSize = make_uint3(16,16,16); // must be power of 2
+    m_hostGridSize = make_uint3(16,16,16); // must be power of 2
 
-    m_psystem = std::make_unique<ParticleSystem>(numElements, hostWorldOrigin, hostGridSize, h);
+    m_psystem = std::make_unique<ParticleSystem>(numElements, hostWorldOrigin, m_hostGridSize, h);
+
+    m_cube = std::make_unique<Cube>(h * m_hostGridSize.x);
 
     // m_psystem->update(0.01f);
     // gpuErrchk( cudaDeviceSynchronize()); 
@@ -284,11 +286,7 @@ void SPHMesh::draw()
         m_basicShaderProgram->use();
         m_basicShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
         m_basicShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
-
-        if (m_renderBoundaries)
-            glDrawArrays(GL_POINTS, 0, m_psystem->numParticles()); // use this to draw ALL particles (including Boundary particles)
-        else
-            glDrawArrays(GL_POINTS, 0, numElements); // use this to draw only fluid particles
+        glDrawArrays(GL_POINTS, 0, numElements); // use this to draw only fluid particles
     }
     else if (strcmp(m_renderingMode, "Flat Spheres") == 0)
     {
@@ -299,10 +297,7 @@ void SPHMesh::draw()
         m_shpereShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
         m_shpereShaderProgram->setFloat("sphereRadius", m_sphereRadius);
         m_shpereShaderProgram->setVec2("resolution", glm::vec2(m_state->getWidth(), m_state->getHeight()));
-        if (m_renderBoundaries)
-            glDrawArrays(GL_POINTS, 0, m_psystem->numParticles()); // use this to draw ALL particles (including Boundary particles)
-        else
-            glDrawArrays(GL_POINTS, 0, numElements); // use this to draw only fluid particles
+        glDrawArrays(GL_POINTS, 0, numElements); // use this to draw only fluid particles
     }
     else
     {
@@ -314,20 +309,20 @@ void SPHMesh::draw()
         for (auto i = 0; i < numElements; i++)
         {
             float3 pos = m_psystem->getParticleArray()[i].position;
-            glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(pos.x, pos.y, pos.z));
+            glm::mat4 modelMatrix = glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(pos.x, pos.y, pos.z)), glm::vec3(m_sphereRadius));
             m_basicWithModelShaderProgram->setMat4("modelMatrix", modelMatrix);
             glDrawElements(GL_TRIANGLES, m_sphereIndices.size(), GL_UNSIGNED_INT, 0);
         }
+    }
 
-        // render boundaries cheaply
-
-        glBindVertexArray(m_vao);
+    if (m_renderBoundaries) {
         glPointSize(10.0f);
-        m_basicShaderProgram->use();
-        m_basicShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
-        m_basicShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
-
-        if (m_renderBoundaries)
-            glDrawArrays(GL_POINTS, numElements, m_psystem->numParticles());
+        m_basicWithModelShaderProgram->use();
+        m_basicWithModelShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
+        m_basicWithModelShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
+        glm::vec3 offset = glm::vec3(m_hostGridSize.x, m_hostGridSize.y, m_hostGridSize.z) / 4.0f;
+        glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), offset);
+        m_basicWithModelShaderProgram->setMat4("modelMatrix", modelMatrix);
+        m_cube->draw();
     }
 }
