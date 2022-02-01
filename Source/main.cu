@@ -265,7 +265,6 @@ int main()
         glfwSwapBuffers(window);
     }
 
-    sphmesh.reset(); //call destructor of psystem before opengl context gets deleted
     glfwTerminate();
     return 0;
 }

@@ -192,15 +192,15 @@ __host__ __device__ float kernelW(float r, float h){
     if(q >= 2.0f)
         return 0.f;
 
-    float alpha = 1.f/(4* M_PI* pow(h,3));
+    float alpha = 1.f/float(4* M_PI* pow(h,3));
 
     if(0.f <= q && q < 1.f){
 
-        return pow(2-q,3) - 4* pow(1-q,3);
+        return float(pow(2-q,3) - 4* pow(1-q,3));
     }
     else if(1.f <= q && q < 2.0f){
 
-        return pow(2-q,3);
+        return float(pow(2-q,3));
     }
     else{
         // printf("q = %f, r = %f, h = %f.\n",q,r,h);
@@ -278,7 +278,7 @@ __device__ float sphDensity(uint* cellStart,
                                 float3 dVec = particle.position - neighborParticle.position;
                                 float dist = length(dVec);
 
-                                if(dist > cellSize.x){
+                                if(dist > cellSize.x || dist < EPS){
                                     //Dismiss
                                     continue;
                                 }
@@ -585,9 +585,9 @@ void ParticleSystem::_initParticles(int numParticles)
     
     Particle* it = m_particleArray;
 
-    int width = 20;
+    int width = (m_cellSize.x*m_gridSize.x/m_spacing) - 1;
     int height = numParticles/(width*width);
-    float3 offset = make_float3(m_cellSize.x,2.0f,m_cellSize.z);
+    float3 offset = make_float3(m_spacing,m_spacing,m_spacing);//make_float3(m_cellSize.x,m_spacing,m_cellSize.z);
     int count = 0;
     for(auto y = 0; y < height; y++){
         for(auto z = 0; z < width; z++){
@@ -595,6 +595,7 @@ void ParticleSystem::_initParticles(int numParticles)
                 
                 it->position = m_spacing*make_float3(x,y,z) + offset;
                 _resetProperties(it);
+                //it->velocity = make_float3(10.f,0.f,0.f);
                 it->mass = m_uniform_mass;
                 it->isBoundary = false;
                 it++;
@@ -610,6 +611,7 @@ void ParticleSystem::_initParticles(int numParticles)
         int z = (i/width);
         it->position = m_spacing*make_float3(x,y,z) + offset;
         _resetProperties(it);
+        //it->velocity = make_float3(10.f,0.f,0.f);
         it->mass = m_uniform_mass;
         it->isBoundary = false;
         it++;
@@ -795,8 +797,8 @@ void ParticleSystem::_free()
     gpuErrchk(cudaFree(m_dSortedParticleIndex));
     gpuErrchk(cudaFree(m_cellStart));
     gpuErrchk(cudaFree(m_cellEnd));
-    glDeleteBuffers(1, (const GLuint *)&m_vbo);
-    gpuErrchk(cudaGraphicsUnregisterResource(m_cuda_vbo_resource));
+    // glDeleteBuffers(1, (const GLuint *)&m_vbo);
+    // gpuErrchk(cudaGraphicsUnregisterResource(m_cuda_vbo_resource));
 }
 
 ParticleSystem::~ParticleSystem(){

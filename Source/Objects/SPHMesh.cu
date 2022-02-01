@@ -1,9 +1,10 @@
 #include "SPHMesh.cuh"
 
-constexpr int numElements = int(2e3);
+constexpr int numElements = int(5e3);
 constexpr int sphereSections = int(12);
 
-SPHMesh::SPHMesh(std::shared_ptr<State> state)
+SPHMesh::SPHMesh(std::shared_ptr<State> state) : 
+timeSpeed(1.f)
 {
     m_state = state;
 
@@ -30,7 +31,7 @@ SPHMesh::SPHMesh(std::shared_ptr<State> state)
 
     time = 0.f;
 
-    m_renderingMode = "Real Spheres";
+    m_renderingMode = "Points";
     m_sphereRadius = 3.0f;
     m_renderBoundaries = true;
 
@@ -228,7 +229,7 @@ void SPHMesh::setDepthtexture(GLuint depthTexture)
 
 void SPHMesh::updateParticles(float deltaTime){
 
-    m_psystem->update(deltaTime);
+    m_psystem->update(timeSpeed * deltaTime);
     // time += deltaTime;
     //printf("dt %f.",deltaTime);
     // if(time > 3.f){ //Debug info every 3 sec
@@ -265,6 +266,8 @@ void SPHMesh::drawGUI()
 
     // Sphere radius for rendering
     ImGui::SliderFloat("Sphere radius", &m_sphereRadius, 1.0f, 100.0f);
+
+    ImGui::SliderFloat("Speed", &timeSpeed, 0.0f, 1.0f);
 
     // Toggle whether to render boundary walls
     ImGui::Checkbox("Draw Boundaries", &m_renderBoundaries);

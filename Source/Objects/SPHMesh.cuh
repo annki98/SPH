@@ -26,6 +26,7 @@ private:
     void drawGUI();
     std::unique_ptr<ParticleSystem> m_psystem;
     float time;
+    float timeSpeed;
     uint3 m_hostGridSize;
 
     std::shared_ptr<State> m_state;
