@@ -90,6 +90,7 @@ class ParticleSystem{
 
  protected:
     void _init(int numParticles);
+    void _resetProperties(Particle *it);
     void _initParticles(int numParticles);
     void _initGammas();
     void _initBoundary(int extend, float spacing);

@@ -10,7 +10,7 @@ SPHMesh::SPHMesh(std::shared_ptr<State> state)
     // setup particle system
     float3 hostWorldOrigin = make_float3(0.f,0.f,0.f);
     float h = 1.f/4.f;
-    uint3  hostGridSize = make_uint3(64,64,64); // must be power of 2
+    uint3  hostGridSize = make_uint3(16,16,16); // must be power of 2
 
     m_psystem = std::make_unique<ParticleSystem>(numElements, hostWorldOrigin, hostGridSize, h);
 
