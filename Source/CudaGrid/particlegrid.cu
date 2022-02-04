@@ -36,7 +36,7 @@ __constant__ float gamma2;
 __global__ void timeIntegrationD(Particle* particles,
                                 float deltaTime,
                                 uint numParticles,
-                                bool useReflect)
+                                BoundaryMode mode)
 {
     uint index = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -48,15 +48,18 @@ __global__ void timeIntegrationD(Particle* particles,
     float3 vel = particles[index].velocity;
 
     //float3 velh = particles[index].velh;
-    // if(index == 0){
-    //     printf("pos before integrating: (%f,%f,%f)\n", pos.x, pos.y, pos.z);
-    //     printf("vel before integrating: (%f,%f,%f)\n", vel.x, vel.y, vel.z);
-    //     printf("-- pressureGradient:  (%f,%f,%f)\n", particles[index].pressureGradient.x, particles[index].pressureGradient.y, particles[index].pressureGradient.z);
-    //     printf("-- viscosity:  (%f,%f,%f)\n", particles[index].viscosity.x, particles[index].viscosity.y, particles[index].viscosity.z);
-    // }
+   
     // equation (1)
     float3 accel = gravity + particles[index].pressureGradient + particles[index].viscosity;
 
+    // if(isnan(length(accel))){
+    //     printf("pos before integrating: (%f,%f,%f)\n", pos.x, pos.y, pos.z);
+    //     printf("vel before integrating: (%f,%f,%f)\n", vel.x, vel.y, vel.z);
+    //     printf("-- Density: %f\n", particles[index].density);
+    //     printf("-- pressureGradient:  (%f,%f,%f)\n", particles[index].pressureGradient.x, particles[index].pressureGradient.y, particles[index].pressureGradient.z);
+    //     printf("-- viscosity:  (%f,%f,%f)\n", particles[index].viscosity.x, particles[index].viscosity.y, particles[index].viscosity.z);
+    //     assert(0);
+    // }
     // float3 velh = vel + particles[index].acceleration * deltaTime/2.f;
     // pos  += deltaTime * velh;
     // vel  = velh + accel * deltaTime/2.f;
@@ -70,7 +73,7 @@ __global__ void timeIntegrationD(Particle* particles,
     pos += vel * deltaTime;
 
 
-    if(useReflect){
+    if(mode == REFLECT || mode == BP_MOVING){
         // Reflection boundary handling
         float MIN = 0.0f;
         float MAX = cellSize.x * gridSize.x; // assumes equal dims
@@ -137,6 +140,29 @@ __global__ void timeIntegrationD(Particle* particles,
     particles[index].acceleration = accel;
 }
 
+
+__global__  void moveObjectD(Particle *particles, float deltaTime, float3 velocity, int numFluidParticles, int numObjectParticles){
+
+    uint index = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (index >= numObjectParticles){
+        return;
+    }
+    index += numFluidParticles; //offset to access boundary particles
+
+    float3 pos = particles[index].position;
+    float3 vel = velocity;
+    pos += deltaTime * vel;
+
+    float MAX = 1.5f*(cellSize.x * gridSize.x); // assumes equal dims
+    float MIN = - (MAX - cellSize.x * gridSize.x);
+    if(pos.x > MAX){
+        pos.x = MIN;
+    }
+
+    particles[index].position = pos;
+    particles[index].velocity = vel;
+}
 
 // calculate position in uniform grid
 __device__ int3 calcGridPos(float3 p)
@@ -441,7 +467,7 @@ __device__ float sphDensity(uint* cellStart,
                                 float3 dVec = particle.position - neighborParticle.position;
                                 float dist = length(dVec);
 
-                                if(dist > cellSize.x || dist < EPS){
+                                if(dist > cellSize.x){
                                     //Dismiss
                                     continue;
                                 }
@@ -476,6 +502,9 @@ __device__ float sphDensity(uint* cellStart,
             }
         }
         float density = (particle.mass * sumWFluid + gamma1 * sumWBound);
+        // if(isnan(density)){
+        //     assert(0);
+        // }
         // float density = (particle.mass * sumWFluid + sumWBound);
         // float density = (particle.mass * sumWFluid + particle.mass * sumWBound);
         // float density = particle.mass * sumWFluid;
@@ -541,12 +570,24 @@ __device__ void sphPGradVisc(
                                 }
                                 else{
 
-                                    float pj = (neighborParticle.pressure / pow(neighborParticle.density,2));
+                                    float pj = 0.f;
+                                    if(neighborParticle.density > EPS){
+                                        pj = (neighborParticle.pressure/ pow(neighborParticle.density,2));
+                                    }
                                     sumFluid += (pi + pj) * NablaW;
+
+                                    // if(isnan(length(sumFluid))){
+                                    //     printf("NaN SumFluid: pi = %f, pj = %f, NablaW = (%f,%f,%f)\n", pi, pj, NablaW.x,NablaW.y,NablaW.z);
+                                    //     printf("Neighbor: pressure = %f, Density = %f\n", neighborParticle.pressure, neighborParticle.density);
+                                    //     assert(0);
+                                    // }
                                 }
 
                                 float3 vij = particle.velocity - neighborParticle.velocity;
-                                viscosity += (neighborParticle.mass/neighborParticle.density) * (dot(vij,xij)/(dot(xij,xij) + 0.01*pow(smoothingRadius,2))) * NablaW;
+                                if(neighborParticle.density > EPS){
+                                    viscosity += (neighborParticle.mass/neighborParticle.density) * (dot(vij,xij)/(dot(xij,xij) + 0.01*pow(smoothingRadius,2))) * NablaW;
+                                }
+                                
                                 // if(originalIndex == 0){
                                 //     printf("adding (%f,%f,%f).\n", add.x,add.y,add.z);
                                 // }
@@ -565,6 +606,10 @@ __device__ void sphPGradVisc(
 
         // if(isnan(length(pGradient))){
         //     printf("NaN Gradient: Pos (%f,%f,%f) gradientFluid = (%f,%f,%f), gradientBound = (%f,%f,%f)\n",particle.position.x,particle.position.y,particle.position.z, gradientFluid, gradientBound);
+        //     assert(0);
+        // }
+        // if(isnan(length(viscosity))){
+        //     printf("NaN viscosity: Pos (%f,%f,%f)\n",particle.position.x,particle.position.y,particle.position.z);
         //     assert(0);
         // }
 }
@@ -699,7 +744,7 @@ void getNeighbors(float3 pos, uint* dSortedHash, uint* dSortedIndex, std::vector
 }
 
 
-
+// ########## PARTICLE SYSTEM CLASS ################
 
 ParticleSystem::ParticleSystem(uint numParticles, float3 hostWorldOrigin, uint3 hostGridSize, float h):
     m_numParticles(numParticles),
@@ -712,7 +757,8 @@ ParticleSystem::ParticleSystem(uint numParticles, float3 hostWorldOrigin, uint3 
     m_cellSize(make_float3(2*h,2*h,2*h)), //cell size equals kernel support
     m_uniform_mass(0.f),
     m_h(h),
-    m_useReflect(true)
+    objVel(make_float3(5.f,0.f,0.f)),
+    m_boundaryMode(REFLECT)
 {
     gpuErrchk(cudaMemcpyToSymbol(worldOrigin, &m_worldOrigin, sizeof(float3)));
     gpuErrchk(cudaMemcpyToSymbol(smoothingRadius, &h, sizeof(float)));
@@ -862,83 +908,116 @@ void ParticleSystem::_initGammas(){
     float g2 = - dot(sumNablaWf, sumNablaWb)/dot(sumNablaWb,sumNablaWb);
     m_g3 = g1 * m_particleVolume *sumWbb;
 
-    printf("Checking Gammas:\n");
-    float sumW = sumWf+g1*sumWb;
-    printf("Gamma1 %f: (1/Vi = %f). sumWf + g1*sumWb = %f -> must be ~ equal\n",g1, 1.f/m_particleVolume, sumW);
-    float3 constraint = sumNablaWf + g2 * sumNablaWb;
-    printf("Gamma2 %f: SumNablaWf + gamma2*SumNablaWb = (%f,%f,%f) -> must be ~ 0\n", g2,constraint.x,constraint.y,constraint.z);
+    // printf("Checking Gammas:\n");
+    // float sumW = sumWf+g1*sumWb;
+    // printf("Gamma1 %f: (1/Vi = %f). sumWf + g1*sumWb = %f -> must be ~ equal\n",g1, 1.f/m_particleVolume, sumW);
+    // float3 constraint = sumNablaWf + g2 * sumNablaWb;
+    // printf("Gamma2 %f: SumNablaWf + gamma2*SumNablaWb = (%f,%f,%f) -> must be ~ 0\n", g2,constraint.x,constraint.y,constraint.z);
 
     gpuErrchk(cudaMemcpyToSymbol(gamma1, &g1, sizeof(float)));
     gpuErrchk(cudaMemcpyToSymbol(gamma2, &g2, sizeof(float)));
 }
 
-void ParticleSystem::_initBoundary(int extend, float spacing)
+void ParticleSystem::_initBoundary(int extend, float spacing, BoundaryMode bMode)
 {
     std::vector<float3> boundaryPos;
-
-    // Ground
     int i = 0;
-    for(auto x = 0; x < extend; x++){
-        for(auto z = 0; z < extend; z++){
-            // for(auto y = 0; y < 4; y++){
-                auto pos =  m_spacing*make_float3(x, 0.f, z);
-                boundaryPos.push_back(pos);
+
+    if(bMode == REFLECT) // No boundary particles here
+        return;
+
+    else if(bMode == BP_BOX){
+        // Ground
+        for(auto x = 0; x < extend; x++){
+            for(auto z = 0; z < extend; z++){
+                // for(auto y = 0; y < 4; y++){
+                    auto pos =  m_spacing*make_float3(x, 0.f, z);
+                    boundaryPos.push_back(pos);
+                    i++;
+                    // it->position = m_spacing*make_float3(x, 0.f, z);
+                    // //printf("Boundary particle (%f,%f,%f) added.\n",it->position.x,0.f,it->position.z);
+                    // it->mass = m_uniform_mass;
+                    // it->isBoundary = true;
+                    // it++;
+                // }
+            }  
+        }
+        
+        // Wall 1 (back)
+        for(auto x = 0; x < extend; x++){
+            for(auto y = 0; y < extend; y++){
+                // printf("Boundary particle (%f,%f,%f) added.\n",x,y,z);
                 i++;
-                // it->position = m_spacing*make_float3(x, 0.f, z);
-                // //printf("Boundary particle (%f,%f,%f) added.\n",it->position.x,0.f,it->position.z);
-                // it->mass = m_uniform_mass;
-                // it->isBoundary = true;
-                // it++;
-            // }
-        }  
+                auto pos = m_spacing * make_float3(x, y + 1, 0.f);
+                boundaryPos.push_back(pos);
+            }
+        }
+
+        // Wall 2 (front)
+        for(auto x = 0; x < extend; x++){
+            for(auto y = 0; y < extend; y++){
+                // printf("Boundary particle (%f,%f,%f) added.\n",x,y,z);
+                i++;
+                auto pos = m_spacing * make_float3(x, y + 1, extend - 1);
+                boundaryPos.push_back(pos);
+            }
+        }
+
+        // Wall 3 (left)
+        for(auto y = 0; y < extend; y++){
+            for(auto z = 0; z < extend; z++){
+                // printf("Boundary particle (%f,%f,%f) added.\n",x,y,z);
+                i++;
+                auto pos = m_spacing * make_float3(0.f, y + 1, z);
+                boundaryPos.push_back(pos);
+            }
+        }
+
+        // Wall 4 (right)
+        for(auto y = 0; y < extend; y++){
+            for(auto z = 0; z < extend; z++){
+                // printf("Boundary particle (%f,%f,%f) added.\n",x,y,z);
+                i++;
+                auto pos = m_spacing * make_float3(extend - 1, y + 1, z);
+                boundaryPos.push_back(pos);
+            }
+        }
+
+    }
+    else if(bMode == BP_GROUND){
+
+        float3 offset = make_float3(-m_cellSize.x*m_gridSize.x, 0.f, -m_cellSize.x*m_gridSize.x)/2.f;
+
+        for(auto x = 0; x < extend; x++){
+            for(auto z = 0; z < extend; z++){
+                // for(auto y = 0; y < 4; y++){
+                    auto pos =  m_spacing*make_float3(x, 0.f, z) + offset;
+                    boundaryPos.push_back(pos);
+                    i++;
+            }  
+        }
+    }
+    else if(bMode == BP_MOVING){
+        int depth = 5;
+        float3 offset = make_float3(0.f, 0.f, m_cellSize.x*m_gridSize.x)/2.f - make_float3(0,0,extend/2);
+
+            for(auto x = 0; x < depth; x++){
+                for(auto y = 0; y < extend; y++){
+                    for(auto z = 0; z < extend; z++){
+
+                        auto pos =  m_spacing*make_float3(x, y, z) + offset; //back side         
+                        boundaryPos.push_back(pos);
+                        i++;  
+                    }
+                }
+            }
     }
     
-    // Wall 1 (back)
-    for(auto x = 0; x < extend; x++){
-        for(auto y = 0; y < extend; y++){
-            // printf("Boundary particle (%f,%f,%f) added.\n",x,y,z);
-            i++;
-            auto pos = m_spacing * make_float3(x, y + 1, 0.f);
-            boundaryPos.push_back(pos);
-        }
-    }
-
-    // Wall 2 (front)
-    for(auto x = 0; x < extend; x++){
-        for(auto y = 0; y < extend; y++){
-            // printf("Boundary particle (%f,%f,%f) added.\n",x,y,z);
-            i++;
-            auto pos = m_spacing * make_float3(x, y + 1, extend - 1);
-            boundaryPos.push_back(pos);
-        }
-    }
-
-    // Wall 3 (left)
-    for(auto y = 0; y < extend; y++){
-        for(auto z = 0; z < extend; z++){
-            // printf("Boundary particle (%f,%f,%f) added.\n",x,y,z);
-            i++;
-            auto pos = m_spacing * make_float3(0.f, y + 1, z);
-            boundaryPos.push_back(pos);
-        }
-    }
-
-    // Wall 4 (right)
-    for(auto y = 0; y < extend; y++){
-        for(auto z = 0; z < extend; z++){
-            // printf("Boundary particle (%f,%f,%f) added.\n",x,y,z);
-            i++;
-            auto pos = m_spacing * make_float3(extend - 1, y + 1, z);
-            boundaryPos.push_back(pos);
-        }
-    }
-
-    int bsize = boundaryPos.size();
     // Insert into particle array
     for(int i = 0; i < m_numBoundary; i++){
 
         auto pos = boundaryPos[i];
-        m_particleArray[i + m_numParticles].position = pos;
+        
         //printf("Boundary particle (%f,%f,%f) added.\n",it->position.x,0.f,it->position.z);
 
         //Calculate Mass for boundary
@@ -958,11 +1037,10 @@ void ParticleSystem::_initBoundary(int extend, float spacing)
         // float boundaryMass = m_restingDensity * (m_g3/sumWbb);
         float boundaryMass = m_uniform_mass;
 
+        m_particleArray[i + m_numParticles].position = pos;
         m_particleArray[i + m_numParticles].mass = boundaryMass;
         m_particleArray[i + m_numParticles].isBoundary = true;
     }
-
-
     
     printf("%u boundary particles added!\n",i);
 }
@@ -978,12 +1056,30 @@ void ParticleSystem::_setGLArray(uint numParticles){
 
 void ParticleSystem::_init(int numParticles)
 {
-    int boundaryDim = static_cast<int>(1.0f * m_gridSize.x *m_cellSize.x / m_spacing) + 1;
-    m_numBoundary = static_cast<uint>(pow(boundaryDim,2)) * 5; // Boundary particles for 1 uniform ground square + 4 walls
+    printf("Mode = %u\n", m_boundaryMode);
+    int bExtend;
 
-    if(m_useReflect){
-        boundaryDim = 0;
+    if (m_boundaryMode == REFLECT)
+    {
+        bExtend = 0;
         m_numBoundary = 0;
+    }
+    else if (m_boundaryMode == BP_BOX)
+    {
+        bExtend = static_cast<int>(1.0f * m_gridSize.x * m_cellSize.x / m_spacing) + 1;
+        m_numBoundary = static_cast<uint>(pow(bExtend, 2)) * 5; // Boundary particles for 1 uniform ground square + 4 walls
+    }
+    else if (m_boundaryMode == BP_GROUND)
+    {
+        bExtend = static_cast<int>(2.0f * m_gridSize.x * m_cellSize.x / m_spacing) + 1;
+        m_numBoundary = static_cast<uint>(pow(bExtend, 2));
+    }
+    else if(m_boundaryMode == BP_MOVING){
+        bExtend = static_cast<int>(10/m_spacing); // here extend means the width/height of the moving object
+        int depth = 5; // must be the same as in initBoundary
+
+        // m_numBoundary = static_cast<uint>(2*pow(bExtend, 2) + (depth-2)*4*(bExtend-1)); hollow object
+        m_numBoundary = static_cast<uint>(depth*pow(bExtend, 2));
     }
 
     m_numAllParticles = numParticles + m_numBoundary;
@@ -996,7 +1092,7 @@ void ParticleSystem::_init(int numParticles)
     _initParticles(numParticles);
     gpuErrchk( cudaDeviceSynchronize());
     _initGammas();
-    _initBoundary(boundaryDim, m_spacing);
+    _initBoundary(bExtend, m_spacing, m_boundaryMode);
     gpuErrchk( cudaDeviceSynchronize());
 
     gpuErrchk(cudaMallocManaged(&m_dGridParticleHash, m_numAllParticles * sizeof(uint)));
@@ -1035,7 +1131,7 @@ void ParticleSystem::timeIntegration(Particle* particles,
     uint numThreads, numBlocks;
     computeGridSize(numParticles, 256, numBlocks, numThreads);
 
-    timeIntegrationD<<< numBlocks, numThreads >>>(particles, deltaTime, numParticles, m_useReflect);
+    timeIntegrationD<<< numBlocks, numThreads >>>(particles, deltaTime, numParticles, m_boundaryMode);
 
     gpuErrchk( cudaPeekAtLastError());
 }
@@ -1149,6 +1245,15 @@ void ParticleSystem::gatherPositions(float4* positions, Particle* particleArray,
     gatherPositionsD<<< numBlocks, numThreads >>>(positions, particleArray, numParticles);
 }
 
+void ParticleSystem::moveObject(Particle *particleArray, float deltaTime, float3 velocity, int numFluidParticles, int numObjectParticles){
+    // thread per particle
+    uint numThreads, numBlocks;
+    computeGridSize(numObjectParticles, 64, numBlocks, numThreads);
+
+    moveObjectD<<< numBlocks, numThreads >>>(particleArray, deltaTime, velocity, numFluidParticles, numObjectParticles);
+}
+
+
 void ParticleSystem::update(float deltaTime)
 {
     // std::cout<<"---------------\n";
@@ -1234,6 +1339,12 @@ void ParticleSystem::update(float deltaTime)
     duration = std::chrono::steady_clock ::now() - start;
     // std::cout << "timeIntegration: \t Kernel took "
     // << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
+
+    if(m_boundaryMode == BP_MOVING){
+        moveObject(m_particleArray, deltaTime, objVel, m_numParticles, m_numBoundary);
+        gpuErrchk( cudaDeviceSynchronize()); 
+    }
+
 
     //map m_positions to be used with cuda
     float4* m_positions;
@@ -1355,9 +1466,15 @@ void ParticleSystem::dumpParticleInfo(uint start, uint end){
     gpuErrchk( cudaDeviceSynchronize());  
 }
 
+void ParticleSystem::resetParticles(uint numParticles, BoundaryMode bMode)
+{
+    gpuErrchk(cudaDeviceSynchronize());
+    m_boundaryMode = bMode;
+    _init(numParticles);
+}
+
 void ParticleSystem::resetParticles(uint numParticles)
 {
     gpuErrchk(cudaDeviceSynchronize());
-    //_initParticles(m_numParticles);
     _init(numParticles);
 }

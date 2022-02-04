@@ -27,6 +27,15 @@ class Particle
 
 typedef unsigned int uint;
 
+enum BoundaryMode
+{
+    REFLECT,
+    BP_BOX,
+    BP_GROUND,
+    BP_MOVING,
+    NUM_BMODES,
+};
+
 class ParticleSystem{
  public:
      ParticleSystem(uint numParticles, float3 worldOrigin, uint3 gridSize, float h);
@@ -76,18 +85,29 @@ class ParticleSystem{
                         Particle *particleArray,
                         uint numParticles);
 
+    void moveObject(Particle *particleArray,
+                    float deltaTime,
+                    float3 velocity,
+                    int numFluidParticles,
+                    int numObjectParticles
+                    );
+
     void update(float deltaTime);
 
     // testing method to get all neighboring particles for a given indexed particle
     void checkNeighbors(uint index, int numParticles);
     void getSortedNeighbors(float3 pos, std::vector<uint> &neighborIndex, uint numParticles);
     void dumpParticleInfo(uint start, uint end);
+    void resetParticles(uint numParticles, BoundaryMode mode);
     void resetParticles(uint numParticles);
 
 
-    void switchBoundary(uint numParticles){
-        m_useReflect = !m_useReflect;
-        resetParticles(numParticles);
+    // void switchBoundary(uint numParticles){
+    //     m_useReflect = !m_useReflect;
+    //     resetParticles(numParticles);
+    // }
+    BoundaryMode boundaryMode(){
+        return m_boundaryMode;
     }
     Particle* getParticleArray();
     float getRestingDensity(){
@@ -103,13 +123,18 @@ class ParticleSystem{
     uint numParticles(){
         return m_numAllParticles;
     }
+    uint numBoundaryParticles(){
+        return m_numBoundary;
+    }
+
+    float3 objVel;
 
  protected:
     void _init(int numParticles);
     void _resetProperties(Particle *it);
     void _initParticles(int numParticles);
     void _initGammas();
-    void _initBoundary(int extend, float spacing);
+    void _initBoundary(int extend, float spacing, BoundaryMode bMode);
     void _free();
     
     uint m_numParticles;
@@ -130,7 +155,8 @@ class ParticleSystem{
     float m_fluidVolume;
     float m_particleVolume;
     float m_uniform_mass;
-    bool m_useReflect;
+
+    BoundaryMode m_boundaryMode;
 
     // float m_g1;
     // float m_g2;

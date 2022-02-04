@@ -35,7 +35,7 @@ m_printInfo(false)
 
     time = 0.f;
 
-    m_renderingMode = "Real Spheres";
+    m_renderingMode = "Points";
     m_sphereRadius = 6.0f;
     m_highlighted = 2211;
 
@@ -61,8 +61,6 @@ m_printInfo(false)
 
     m_basicShaderProgram->link();
     m_basicShaderProgram->use();
-    glm::vec3 waterColor(0.1f,0.4f,0.9f); // water color
-    m_basicShaderProgram->setVec3("color",waterColor);
     float cellSize = m_psystem->getCellSize();
     m_basicShaderProgram->setFloat("fullGridSize", cellSize * m_hostGridSize.x);
 
@@ -295,8 +293,14 @@ void SPHMesh::drawGUI()
         m_psystem->resetParticles(numElements);
 
 
-    if(ImGui::Button("Switch Boundary Mode"))
-        m_psystem->switchBoundary(numElements);
+    if(ImGui::Button("Switch Boundary Mode")){
+        BoundaryMode nextMode = static_cast<BoundaryMode>((static_cast<int>(m_psystem->boundaryMode()) + 1) % static_cast<int>(NUM_BMODES));
+        m_psystem->resetParticles(numElements, nextMode);
+    }
+    
+    if(m_psystem->boundaryMode() == BP_MOVING){
+        ImGui::SliderFloat("Object Speed", &(m_psystem->objVel.x), 0.0f, 50.0f);
+    }
     
 
     ImGui::End();
@@ -313,7 +317,16 @@ void SPHMesh::draw()
         m_basicShaderProgram->use();
         m_basicShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
         m_basicShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
+        glm::vec3 waterColor(0.1f,0.4f,0.9f); // water color
+        m_basicShaderProgram->setVec3("color",waterColor);
         glDrawArrays(GL_POINTS, 0, numElements); // use this to draw only fluid particles
+
+        if (m_renderBoundaryParticles) {
+            glm::vec3 color(1.0f,1.0f,0.1f);
+
+            m_basicShaderProgram->setVec3("color",color);
+            glDrawArrays(GL_POINTS, numElements, m_psystem->numBoundaryParticles()); // draw only boundary Particles
+        }
     }
     else if (strcmp(m_renderingMode, "Flat Spheres") == 0)
     {
