@@ -758,7 +758,7 @@ void ParticleSystem::_initParticles(int numParticles)
     
     Particle* it = m_particleArray;
 
-    m_partConstellation = "Default";
+    m_partConstellation = "Four Pillars";
 
     if(strcmp(m_partConstellation, "Sphere") == 0)
     {
@@ -767,7 +767,70 @@ void ParticleSystem::_initParticles(int numParticles)
     //4 groups of particles at each corner of the volume
     else if (strcmp(m_partConstellation, "Four Pillars") == 0)
     {
+        float spacingLocal = m_spacing;
+        int width = m_cellSize.x * m_gridSize.x;
+        float particlesPerLine = (width / spacingLocal) + 1;
+        int height = numParticles/(particlesPerLine*particlesPerLine);
+        int count = 0;
+        float quarterW = width / 4;
+        int y = 0;
+        float3 offset = make_float3(m_spacing,5*m_spacing,m_spacing);
 
+        
+        while(count < numParticles){    
+            y++;
+
+            //fill from z = beginning,x = beginning
+            //float3 offset = make_float3(m_cellSize.x,2.0f,m_cellSize.z);
+            for(auto z = 0; z < quarterW; z++){
+                for(auto x = 0; x < quarterW; x++){
+                    it->position = m_spacing*make_float3(x,y,z) + offset;
+                    it->mass = m_uniform_mass;
+                    it->isBoundary = false;
+                    it++;
+                    count++;
+                }
+            }
+            //fill from z = end, x = beginning
+            //float3 offset = make_float3(m_cellSize.x,2.0f,-m_cellSize.z);
+            for (auto z = width; z > width - quarterW; z = z-1)
+            {
+                for (auto x = 0; x < quarterW; x++)
+                {
+                    it->position = m_spacing*make_float3(x,y,z) + (offset * make_float3(1.f,1.f,-1.f));
+                    it->mass = m_uniform_mass;
+                    it->isBoundary = false;
+                    it++;
+                    count++;
+                }
+            }
+            //fill from x = beginning, x = end
+            //float3 offset = make_float3(-m_cellSize.x,2.0f,m_cellSize.z);
+            for (auto z = 0; z < quarterW; z++)
+            {
+                for (auto x = width; x > width - quarterW; x = x-1)
+                {
+                    it->position = m_spacing*make_float3(x,y,z) + (offset * make_float3(-1.f,1.f,1.f));
+                    it->mass = m_uniform_mass;
+                    it->isBoundary = false;
+                    it++;
+                    count++;
+                }
+            }
+            //fill from z = end, x = end
+            //float3 offset = make_float3(-m_cellSize.x,2.0f,-m_cellSize.z);
+            for (auto z = width; z > width - quarterW; z = z-1)
+            {
+                for (auto x = width; x > width - quarterW; x = x-1)
+                {
+                    it->position = m_spacing*make_float3(x,y,z) + (offset * make_float3(-1.f,1.f,-1.f));
+                    it->mass = m_uniform_mass;
+                    it->isBoundary = false;
+                    it++;
+                    count++;
+                }
+            }
+        }
     }
     //default configuration
     else
