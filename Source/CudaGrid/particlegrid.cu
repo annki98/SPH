@@ -1468,5 +1468,17 @@ void ParticleSystem::drawGUIConstellation()
     }
     ImGui::SameLine();
     ImGui::Text("Particle Constellation");
+
+    ImGui::SliderFloat3("Gravity (m/s^2)", &m_gravity.x, -20.0f, 20.0f);
+    gpuErrchk(cudaMemcpyToSymbol(gravity, &m_gravity, sizeof(float3)));
+
+    // density from hydrogen to glycerol
+    ImGui::SliderFloat("Density (kg/m^3)", &m_restingDensity, 0.09f, 1260.0f);
+    gpuErrchk(cudaMemcpyToSymbol(restingDensity, &m_restingDensity, sizeof(float)));
+
+    // large range because it gives really interesting results
+    ImGui::SliderFloat("Viscosity (mPa*s)", &m_mu, 0.005f, 1.0f);
+    gpuErrchk(cudaMemcpyToSymbol(mu, &m_mu, sizeof(float)));
+
     ImGui::End();
 }
