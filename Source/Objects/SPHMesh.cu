@@ -1,6 +1,6 @@
 #include "SPHMesh.cuh"
 
-constexpr int numElements = int(5e3);
+constexpr int numElements = int(1e4);
 constexpr int sphereSections = int(12);
 
 SPHMesh::SPHMesh(std::shared_ptr<State> state) : 
@@ -61,6 +61,10 @@ m_printInfo(false)
 
     m_basicShaderProgram->link();
     m_basicShaderProgram->use();
+    glm::vec3 waterColor(0.1f,0.4f,0.9f); // water color
+    m_basicShaderProgram->setVec3("color",waterColor);
+    float cellSize = m_psystem->getCellSize();
+    m_basicShaderProgram->setFloat("fullGridSize", cellSize * m_hostGridSize.x);
 
     // Setup shader with model matrix
     m_vertexBasicWithModelShader = std::make_shared<Shader>(std::string(SHADERPATH) + "/BasicWithModel.vert");
