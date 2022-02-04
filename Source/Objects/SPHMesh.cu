@@ -289,6 +289,12 @@ void SPHMesh::drawGUI()
     // Reset particle simulation
     if(ImGui::Button("Reset particles"))
         m_psystem->resetParticles(numElements);
+
+
+    if(ImGui::Button("Switch Boundary Mode"))
+        m_psystem->switchBoundary(numElements);
+    
+
     ImGui::End();
 }
 
@@ -365,7 +371,8 @@ void SPHMesh::draw()
         m_basicWithModelShaderProgram->use();
         m_basicWithModelShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
         m_basicWithModelShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
-        glm::vec3 offset = m_psystem->getCellSize() * glm::vec3(m_hostGridSize.x, m_hostGridSize.y, m_hostGridSize.z) / 2.0f;
+        float cellSize = m_psystem->getCellSize();
+        glm::vec3 offset = cellSize * glm::vec3(m_hostGridSize.x, m_hostGridSize.y, m_hostGridSize.z) / 2.0f;
         glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), offset);
         m_basicWithModelShaderProgram->setMat4("modelMatrix", modelMatrix);
         m_cube->draw();

@@ -84,6 +84,11 @@ class ParticleSystem{
     void dumpParticleInfo(uint start, uint end);
     void resetParticles(uint numParticles);
 
+
+    void switchBoundary(uint numParticles){
+        m_useReflect = !m_useReflect;
+        resetParticles(numParticles);
+    }
     Particle* getParticleArray();
     float getRestingDensity(){
         return m_restingDensity;
@@ -125,7 +130,7 @@ class ParticleSystem{
     float m_fluidVolume;
     float m_particleVolume;
     float m_uniform_mass;
-    // bool m_useReflect;
+    bool m_useReflect;
 
     // float m_g1;
     // float m_g2;

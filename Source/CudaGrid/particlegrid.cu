@@ -35,7 +35,8 @@ __constant__ float gamma2;
 
 __global__ void timeIntegrationD(Particle* particles,
                                 float deltaTime,
-                                uint numParticles)
+                                uint numParticles,
+                                bool useReflect)
 {
     uint index = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -68,11 +69,68 @@ __global__ void timeIntegrationD(Particle* particles,
     vel += accel * deltaTime;
     pos += vel * deltaTime;
 
-    // if(pos.y < -5.f){
-    //     float middle = gridSize.x*cellSize.x/2;
-    //     pos = make_float3(middle,14.f,middle);
-    //     //vel = make_float3(0.f,0.f,0.f);
-    // }
+
+    if(useReflect){
+        // Reflection boundary handling
+        float MIN = 0.0f;
+        float MAX = cellSize.x * gridSize.x; // assumes equal dims
+        const float DAMP = 0.75;
+        if (pos.x < MIN){
+            float tbounce = (pos.x - MIN)/vel.x;
+            pos -= vel * (1-DAMP)*tbounce;
+
+            pos.x = 2*MIN - pos.x;
+            vel.x = -vel.x;
+
+            vel *= DAMP;
+        }
+        if (pos.x > MAX){
+            float tbounce = (pos.x - MAX)/vel.x;
+            pos -= vel * (1-DAMP)*tbounce;
+
+            pos.x = 2*MAX - pos.x;
+            vel.x = -vel.x;
+
+            vel *= DAMP;
+        }
+        if (pos.y < MIN){
+            float tbounce = (pos.y - MIN)/vel.y;
+            pos -= vel * (1-DAMP)*tbounce;
+
+            pos.y = 2*MIN - pos.y;
+            vel.y = -vel.y;
+
+            vel *= DAMP;
+        }
+        if (pos.y > MAX){
+            float tbounce = (pos.y - MAX)/vel.y;
+            pos -= vel * (1-DAMP)*tbounce;
+
+            pos.y = 2*MAX - pos.y;
+            vel.y = -vel.y;
+
+            vel *= DAMP;
+        }
+        if (pos.z < MIN){
+            float tbounce = (pos.z - MIN)/vel.z;
+            pos -= vel * (1-DAMP)*tbounce;
+
+            pos.z = 2*MIN - pos.z;
+            vel.z = -vel.z;
+
+            vel *= DAMP;
+        }
+        if (pos.z > MAX){
+            float tbounce = (pos.z - MAX)/vel.z;
+            pos -= vel * (1-DAMP)*tbounce;
+
+            pos.z = 2*MAX - pos.z;
+            vel.z = -vel.z;
+
+            vel *= DAMP;
+        }
+
+    }
 
     particles[index].position = pos;
     particles[index].velocity = vel;
@@ -223,7 +281,7 @@ __host__ __device__ float kernelW(float r, float h){
         return alpha*static_cast<float>(pow(2-q,3));
     }
     else{
-        // printf("q = %f, r = %f, h = %f.\n",q,r,h);
+        printf("q = %f, r = %f, h = %f.\n",q,r,h);
         assert(0); // Error: q negative or nan
         return -1;
     }
@@ -648,7 +706,8 @@ ParticleSystem::ParticleSystem(uint numParticles, float3 hostWorldOrigin, uint3 
     m_gridSize(hostGridSize),
     m_cellSize(make_float3(2*h,2*h,2*h)), //cell size equals kernel support
     m_uniform_mass(0.f),
-    m_h(h)
+    m_h(h),
+    m_useReflect(true)
 {
     gpuErrchk(cudaMemcpyToSymbol(worldOrigin, &m_worldOrigin, sizeof(float3)));
     gpuErrchk(cudaMemcpyToSymbol(smoothingRadius, &h, sizeof(float)));
@@ -691,9 +750,9 @@ void ParticleSystem::_initParticles(int numParticles)
     
     Particle* it = m_particleArray;
 
-    int width = (m_cellSize.x*m_gridSize.x/m_spacing) - 1;
+    int width = 15;//;(m_cellSize.x*m_gridSize.x/m_spacing) - 1;
     int height = numParticles/(width*width);
-    float3 offset = make_float3(m_spacing,m_spacing,m_spacing);
+    float3 offset = make_float3(m_spacing,5*m_spacing,m_spacing);
     // float3 offset = make_float3(5*m_spacing,m_spacing,5*m_spacing);
     int count = 0;
     for(auto y = 0; y < height; y++){
@@ -917,6 +976,11 @@ void ParticleSystem::_init(int numParticles)
     int boundaryDim = static_cast<int>(1.0f * m_gridSize.x *m_cellSize.x / m_spacing) + 1;
     m_numBoundary = static_cast<uint>(pow(boundaryDim,2)) * 5; // Boundary particles for 1 uniform ground square + 4 walls
 
+    if(m_useReflect){
+        boundaryDim = 0;
+        m_numBoundary = 0;
+    }
+
     m_numAllParticles = numParticles + m_numBoundary;
     uint size = (m_numAllParticles) * sizeof(Particle);
 
@@ -966,7 +1030,7 @@ void ParticleSystem::timeIntegration(Particle* particles,
     uint numThreads, numBlocks;
     computeGridSize(numParticles, 256, numBlocks, numThreads);
 
-    timeIntegrationD<<< numBlocks, numThreads >>>(particles, deltaTime, numParticles);
+    timeIntegrationD<<< numBlocks, numThreads >>>(particles, deltaTime, numParticles, m_useReflect);
 
     gpuErrchk( cudaPeekAtLastError());
 }
