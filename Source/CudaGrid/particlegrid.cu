@@ -441,7 +441,7 @@ __device__ float sphDensity(uint* cellStart,
                                 float3 dVec = particle.position - neighborParticle.position;
                                 float dist = length(dVec);
 
-                                if(dist > cellSize.x){
+                                if(dist > cellSize.x || dist < EPS){
                                     //Dismiss
                                     continue;
                                 }
