@@ -7,6 +7,8 @@
 
 #include "particlegrid.cuh"
 
+#include "imgui/imgui.h"
+
 #define EPS 1e-12
 
 namespace cg = cooperative_groups;
@@ -138,6 +140,7 @@ __global__ void timeIntegrationD(Particle* particles,
     particles[index].position = pos;
     particles[index].velocity = vel;
     particles[index].acceleration = accel;
+    
 }
 
 
@@ -801,38 +804,116 @@ void ParticleSystem::_initParticles(int numParticles)
     
     Particle* it = m_particleArray;
 
-    int width = 15;//;(m_cellSize.x*m_gridSize.x/m_spacing) - 1;
-    int height = numParticles/(width*width);
-    float3 offset = make_float3(m_spacing,5*m_spacing,m_spacing);
-    // float3 offset = make_float3(5*m_spacing,m_spacing,5*m_spacing);
-    int count = 0;
-    for(auto y = 0; y < height; y++){
-        for(auto z = 0; z < width; z++){
-            for(auto x = 0; x < width; x++){
-                
-                it->position = m_spacing*make_float3(x,y,z) + offset;
-                _resetProperties(it);
-                //it->velocity = make_float3(10.f,0.f,0.f);
-                it->mass = m_uniform_mass;
-                it->isBoundary = false;
-                it++;
-                count++;
+    m_partConstellation = "Four Pillars";
+
+    if(strcmp(m_partConstellation, "Sphere") == 0)
+    {
+
+    }
+    //4 groups of particles at each corner of the volume
+    else if (strcmp(m_partConstellation, "Four Pillars") == 0)
+    {
+        float spacingLocal = m_spacing;
+        int width = m_cellSize.x * m_gridSize.x;
+        float particlesPerLine = (width / spacingLocal) + 1;
+        int height = numParticles/(particlesPerLine*particlesPerLine);
+        int count = 0;
+        float quarterW = width / 4;
+        int y = 0;
+        float3 offset = make_float3(m_spacing,5*m_spacing,m_spacing);
+
+        
+        while(count < numParticles){    
+            y++;
+
+            //fill from z = beginning,x = beginning
+            //float3 offset = make_float3(m_cellSize.x,2.0f,m_cellSize.z);
+            for(auto z = 0; z < quarterW; z++){
+                for(auto x = 0; x < quarterW; x++){
+                    it->position = m_spacing*make_float3(x,y,z) + offset;
+                    it->mass = m_uniform_mass;
+                    it->isBoundary = false;
+                    it++;
+                    count++;
+                }
+            }
+            //fill from z = end, x = beginning
+            //float3 offset = make_float3(m_cellSize.x,2.0f,-m_cellSize.z);
+            for (auto z = width; z > width - quarterW; z = z-1)
+            {
+                for (auto x = 0; x < quarterW; x++)
+                {
+                    it->position = m_spacing*make_float3(x,y,z) + (offset * make_float3(1.f,1.f,-1.f));
+                    it->mass = m_uniform_mass;
+                    it->isBoundary = false;
+                    it++;
+                    count++;
+                }
+            }
+            //fill from x = beginning, x = end
+            //float3 offset = make_float3(-m_cellSize.x,2.0f,m_cellSize.z);
+            for (auto z = 0; z < quarterW; z++)
+            {
+                for (auto x = width; x > width - quarterW; x = x-1)
+                {
+                    it->position = m_spacing*make_float3(x,y,z) + (offset * make_float3(-1.f,1.f,1.f));
+                    it->mass = m_uniform_mass;
+                    it->isBoundary = false;
+                    it++;
+                    count++;
+                }
+            }
+            //fill from z = end, x = end
+            //float3 offset = make_float3(-m_cellSize.x,2.0f,-m_cellSize.z);
+            for (auto z = width; z > width - quarterW; z = z-1)
+            {
+                for (auto x = width; x > width - quarterW; x = x-1)
+                {
+                    it->position = m_spacing*make_float3(x,y,z) + (offset * make_float3(-1.f,1.f,-1.f));
+                    it->mass = m_uniform_mass;
+                    it->isBoundary = false;
+                    it++;
+                    count++;
+                }
             }
         }
     }
+    //default configuration
+    else
+    {
+        int width = 15;//;(m_cellSize.x*m_gridSize.x/m_spacing) - 1;
+        int height = numParticles/(width*width);
+        float3 offset = make_float3(m_spacing,5*m_spacing,m_spacing);
+        // float3 offset = make_float3(5*m_spacing,m_spacing,5*m_spacing);
+        int count = 0;
+        for(auto y = 0; y < height; y++){
+            for(auto z = 0; z < width; z++){
+                for(auto x = 0; x < width; x++){
+                    
+                    it->position = m_spacing*make_float3(x,y,z) + offset;
+                    _resetProperties(it);
+                    //it->velocity = make_float3(10.f,0.f,0.f);
+                    it->mass = m_uniform_mass;
+                    it->isBoundary = false;
+                    it++;
+                    count++;
+                }
+            }
+        }
 
-    int rest = numParticles - (height*width*width);
-    int y = height;
-    for(auto i = 0; i < rest; i++){
-        int x = (i%width);
-        int z = (i/width);
-        it->position = m_spacing*make_float3(x,y,z) + offset;
-        _resetProperties(it);
-        //it->velocity = make_float3(10.f,0.f,0.f);
-        it->mass = m_uniform_mass;
-        it->isBoundary = false;
-        it++;
-        count++;
+        int rest = numParticles - (height*width*width);
+        int y = height;
+        for(auto i = 0; i < rest; i++){
+            int x = (i%width);
+            int z = (i/width);
+            it->position = m_spacing*make_float3(x,y,z) + offset;
+            _resetProperties(it);
+            //it->velocity = make_float3(10.f,0.f,0.f);
+            it->mass = m_uniform_mass;
+            it->isBoundary = false;
+            it++;
+            count++;
+        }
     }
 
     // dumpParticleInfo(0,1000);
@@ -1355,6 +1436,8 @@ void ParticleSystem::update(float deltaTime)
     gatherPositions(m_positions, m_particleArray, m_numAllParticles);
     // unmap
     gpuErrchk(cudaGraphicsUnmapResources(1, &m_cuda_vbo_resource, 0));
+
+    drawGUIConstellation();
 }
 
 
@@ -1477,4 +1560,42 @@ void ParticleSystem::resetParticles(uint numParticles)
 {
     gpuErrchk(cudaDeviceSynchronize());
     _init(numParticles);
+}
+
+void ParticleSystem::drawGUIConstellation()
+{
+    ImGui::Begin("SPH Constellation");
+
+    m_partConstellation = "Default";
+
+    //Combo Box to select particle array constellation
+    const char* constellations[] = { "Default", "Sphere", "Four Pillars" };
+
+    if (ImGui::BeginCombo("##combo", m_partConstellation))
+    {
+        for (int n = 0; n < IM_ARRAYSIZE(constellations); n++)
+        {
+            bool is_selected = (m_partConstellation == constellations[n]);
+            if (ImGui::Selectable(constellations[n], is_selected))
+                m_partConstellation = constellations[n];
+            if (is_selected)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    ImGui::Text("Particle Constellation");
+
+    ImGui::SliderFloat3("Gravity (m/s^2)", &m_gravity.x, -20.0f, 20.0f);
+    gpuErrchk(cudaMemcpyToSymbol(gravity, &m_gravity, sizeof(float3)));
+
+    // density from hydrogen to glycerol
+    ImGui::SliderFloat("Density (kg/m^3)", &m_restingDensity, 0.09f, 1260.0f);
+    gpuErrchk(cudaMemcpyToSymbol(restingDensity, &m_restingDensity, sizeof(float)));
+
+    // large range because it gives really interesting results
+    ImGui::SliderFloat("Viscosity (mPa*s)", &m_mu, 0.005f, 1.0f);
+    gpuErrchk(cudaMemcpyToSymbol(mu, &m_mu, sizeof(float)));
+
+    ImGui::End();
 }

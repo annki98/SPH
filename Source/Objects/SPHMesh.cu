@@ -310,6 +310,7 @@ void SPHMesh::draw()
 {
     drawGUI();
 
+    // render particles in the mode enabled in the GUI
     if (strcmp(m_renderingMode, "Points") == 0)
     {
         glBindVertexArray(m_vao);
@@ -368,7 +369,7 @@ void SPHMesh::draw()
             m_basicWithModelShaderProgram->use();
             m_basicWithModelShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
             m_basicWithModelShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
-            for (auto i = numElements; i < m_psystem->numParticles(); i++)
+            for (size_t i = numElements; i < m_psystem->numParticles(); i++)
             {
                 glm::vec3 color(1.0f,1.0f,0.1f);
                 float3 pos = m_psystem->getParticleArray()[i].position;
@@ -383,6 +384,7 @@ void SPHMesh::draw()
         }
     }
 
+    // draw boundary cube if enabled in GUI
     if (m_renderBoundaries) {
         glPointSize(10.0f);
         m_basicWithModelShaderProgram->use();

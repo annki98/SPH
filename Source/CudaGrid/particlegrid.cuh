@@ -129,6 +129,11 @@ class ParticleSystem{
 
     float3 objVel;
 
+    //method to include constellation change list
+    void drawGUIConstellation();
+    const char* m_partConstellation;
+
+
  protected:
     void _init(int numParticles);
     void _resetProperties(Particle *it);
@@ -144,9 +149,9 @@ class ParticleSystem{
  private:
 
     float3 m_gravity = make_float3(0.f,-9.81f, 0.f);
-    const float m_restingDensity = 1000.f;
+    float m_restingDensity = 1000.f;
     // Option 1
-    const float m_mu = float(1.5673e-3);
+    float m_mu = float(1.5673e-3);
     // Option 2
     // const float m_nu = float(10e-6);
 
