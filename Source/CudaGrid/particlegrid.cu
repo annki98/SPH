@@ -102,15 +102,15 @@ __global__ void timeIntegrationD(Particle* particles,
 
             vel *= DAMP;
         }
-        if (pos.y > MAX){
-            float tbounce = (pos.y - MAX)/vel.y;
-            pos -= vel * (1-DAMP)*tbounce;
+        // if (pos.y > MAX){ // leave commented out for open ceiling
+        //     float tbounce = (pos.y - MAX)/vel.y;
+        //     pos -= vel * (1-DAMP)*tbounce;
 
-            pos.y = 2*MAX - pos.y;
-            vel.y = -vel.y;
+        //     pos.y = 2*MAX - pos.y;
+        //     vel.y = -vel.y;
 
-            vel *= DAMP;
-        }
+        //     vel *= DAMP;
+        // }
         if (pos.z < MIN){
             float tbounce = (pos.z - MIN)/vel.z;
             pos -= vel * (1-DAMP)*tbounce;
@@ -528,7 +528,7 @@ __device__ void sphPGradVisc(
                                 float3 xij = particle.position - neighborParticle.position;
                                 float r = length(xij);
 
-                                if(r > cellSize.x){
+                                if(r > cellSize.x || r < EPS){
                                     //Dismiss
                                     continue;
                                 }
@@ -562,6 +562,11 @@ __device__ void sphPGradVisc(
 
         pGradient = gradientFluid + gradientBound;
         viscosity = mu * 10 * viscosity;
+
+        // if(isnan(length(pGradient))){
+        //     printf("NaN Gradient: Pos (%f,%f,%f) gradientFluid = (%f,%f,%f), gradientBound = (%f,%f,%f)\n",particle.position.x,particle.position.y,particle.position.z, gradientFluid, gradientBound);
+        //     assert(0);
+        // }
 }
 
 
