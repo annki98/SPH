@@ -7,6 +7,8 @@
 
 #include "particlegrid.cuh"
 
+#include "imgui/imgui.h"
+
 #define EPS 1e-12
 
 namespace cg = cooperative_groups;
@@ -135,6 +137,7 @@ __global__ void timeIntegrationD(Particle* particles,
     particles[index].position = pos;
     particles[index].velocity = vel;
     particles[index].acceleration = accel;
+    
 }
 
 
@@ -755,38 +758,53 @@ void ParticleSystem::_initParticles(int numParticles)
     
     Particle* it = m_particleArray;
 
-    int width = 15;//;(m_cellSize.x*m_gridSize.x/m_spacing) - 1;
-    int height = numParticles/(width*width);
-    float3 offset = make_float3(m_spacing,5*m_spacing,m_spacing);
-    // float3 offset = make_float3(5*m_spacing,m_spacing,5*m_spacing);
-    int count = 0;
-    for(auto y = 0; y < height; y++){
-        for(auto z = 0; z < width; z++){
-            for(auto x = 0; x < width; x++){
-                
-                it->position = m_spacing*make_float3(x,y,z) + offset;
-                _resetProperties(it);
-                //it->velocity = make_float3(10.f,0.f,0.f);
-                it->mass = m_uniform_mass;
-                it->isBoundary = false;
-                it++;
-                count++;
+    m_partConstellation = "Default";
+
+    if(strcmp(m_partConstellation, "Sphere") == 0)
+    {
+
+    }
+    //4 groups of particles at each corner of the volume
+    else if (strcmp(m_partConstellation, "Four Pillars") == 0)
+    {
+
+    }
+    //default configuration
+    else
+    {
+        int width = 15;//;(m_cellSize.x*m_gridSize.x/m_spacing) - 1;
+        int height = numParticles/(width*width);
+        float3 offset = make_float3(m_spacing,5*m_spacing,m_spacing);
+        // float3 offset = make_float3(5*m_spacing,m_spacing,5*m_spacing);
+        int count = 0;
+        for(auto y = 0; y < height; y++){
+            for(auto z = 0; z < width; z++){
+                for(auto x = 0; x < width; x++){
+                    
+                    it->position = m_spacing*make_float3(x,y,z) + offset;
+                    _resetProperties(it);
+                    //it->velocity = make_float3(10.f,0.f,0.f);
+                    it->mass = m_uniform_mass;
+                    it->isBoundary = false;
+                    it++;
+                    count++;
+                }
             }
         }
-    }
 
-    int rest = numParticles - (height*width*width);
-    int y = height;
-    for(auto i = 0; i < rest; i++){
-        int x = (i%width);
-        int z = (i/width);
-        it->position = m_spacing*make_float3(x,y,z) + offset;
-        _resetProperties(it);
-        //it->velocity = make_float3(10.f,0.f,0.f);
-        it->mass = m_uniform_mass;
-        it->isBoundary = false;
-        it++;
-        count++;
+        int rest = numParticles - (height*width*width);
+        int y = height;
+        for(auto i = 0; i < rest; i++){
+            int x = (i%width);
+            int z = (i/width);
+            it->position = m_spacing*make_float3(x,y,z) + offset;
+            _resetProperties(it);
+            //it->velocity = make_float3(10.f,0.f,0.f);
+            it->mass = m_uniform_mass;
+            it->isBoundary = false;
+            it++;
+            count++;
+        }
     }
 
     // dumpParticleInfo(0,1000);
@@ -1244,6 +1262,8 @@ void ParticleSystem::update(float deltaTime)
     gatherPositions(m_positions, m_particleArray, m_numAllParticles);
     // unmap
     gpuErrchk(cudaGraphicsUnmapResources(1, &m_cuda_vbo_resource, 0));
+
+    drawGUIConstellation();
 }
 
 
@@ -1360,4 +1380,30 @@ void ParticleSystem::resetParticles(uint numParticles)
     gpuErrchk(cudaDeviceSynchronize());
     //_initParticles(m_numParticles);
     _init(numParticles);
+}
+
+void ParticleSystem::drawGUIConstellation()
+{
+    ImGui::Begin("SPH Constellation");
+
+    m_partConstellation = "Default";
+
+    //Combo Box to select particle array constellation
+    const char* constellations[] = { "Default", "Sphere", "Four Pillars" };
+
+    if (ImGui::BeginCombo("##combo", m_partConstellation))
+    {
+        for (int n = 0; n < IM_ARRAYSIZE(constellations); n++)
+        {
+            bool is_selected = (m_partConstellation == constellations[n]);
+            if (ImGui::Selectable(constellations[n], is_selected))
+                m_partConstellation = constellations[n];
+            if (is_selected)
+                ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    ImGui::Text("Particle Constellation");
+    ImGui::End();
 }

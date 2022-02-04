@@ -104,6 +104,11 @@ class ParticleSystem{
         return m_numAllParticles;
     }
 
+    //method to include constellation change list
+    void drawGUIConstellation();
+    const char* m_partConstellation;
+
+
  protected:
     void _init(int numParticles);
     void _resetProperties(Particle *it);
