@@ -670,6 +670,9 @@ ParticleSystem::ParticleSystem(uint numParticles, float3 hostWorldOrigin, uint3 
 
     m_uniform_mass = m_restingDensity * m_particleVolume; // rho_0 * V / n
 
+
+    glGenBuffers(1, &m_vbo);
+
     _init(numParticles);
 }
 
@@ -770,8 +773,8 @@ void ParticleSystem::_initGammas(){
             float add = kernelW(r, m_h);
             sumWb += add;
             sumNablaWb += kernelNablaW(xij, m_h);
-            if(add > 0.f)
-                printf("Gamma Boundary contrib: relative pos (%f,%f,%f) - r = %f. Adding %f to sumWb (%f)\n",x-pos.x,0.f-pos.y,z-pos.z, r, add, sumWb);
+            // if(add > 0.f)
+            //     printf("Gamma Boundary contrib: relative pos (%f,%f,%f) - r = %f. Adding %f to sumWb (%f)\n",x-pos.x,0.f-pos.y,z-pos.z, r, add, sumWb);
         }
     }
 
@@ -901,7 +904,7 @@ void ParticleSystem::_initBoundary(int extend, float spacing)
 }
 
 void ParticleSystem::_setGLArray(uint numParticles){
-    glGenBuffers(1, &m_vbo);
+    // glGenBuffers(1, &m_vbo);
     glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
     // glBufferData(GL_ARRAY_BUFFER, m_numParticles*sizeof(float4), 0, GL_DYNAMIC_DRAW);
     glBufferData(GL_ARRAY_BUFFER, numParticles*sizeof(float4), 0, GL_DYNAMIC_DRAW);
@@ -1286,5 +1289,6 @@ void ParticleSystem::dumpParticleInfo(uint start, uint end){
 void ParticleSystem::resetParticles(uint numParticles)
 {
     gpuErrchk(cudaDeviceSynchronize());
-    _initParticles(m_numParticles);
+    //_initParticles(m_numParticles);
+    _init(numParticles);
 }

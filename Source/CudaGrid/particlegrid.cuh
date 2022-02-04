@@ -125,6 +125,7 @@ class ParticleSystem{
     float m_fluidVolume;
     float m_particleVolume;
     float m_uniform_mass;
+    // bool m_useReflect;
 
     // float m_g1;
     // float m_g2;
