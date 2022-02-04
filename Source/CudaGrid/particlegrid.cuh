@@ -8,6 +8,7 @@
 #include "../Engine/Defs.h"
 #include <cuda_gl_interop.h>
 #include "../Shared/cudaErrorCheck.h"
+#include "helper_math.h"
 
 class Particle 
 {
@@ -17,10 +18,11 @@ class Particle
         float3 position;
         float density;
         float3 velocity;
+        // float3 velh;
         float mass;
-        // float3 convecAccel; wird bei timeIntegration berechnet
         float3 viscosity;
         bool isBoundary;
+        float3 acceleration;
 };
 
 typedef unsigned int uint;
@@ -83,6 +85,12 @@ class ParticleSystem{
     void resetParticles(uint numParticles);
 
     Particle* getParticleArray();
+    float getRestingDensity(){
+        return m_restingDensity;
+    }
+    float getCellSize(){
+        return m_cellSize.x; // assumes equal dimensions
+    }
     GLuint getVBO();
     float getSpacing() {
         return m_spacing;
@@ -105,7 +113,7 @@ class ParticleSystem{
 
  private:
 
-    const float3 m_gravity = make_float3(0.f,-9.81f, 0.f);
+    float3 m_gravity = make_float3(0.f,-9.81f, 0.f);
     const float m_restingDensity = 1000.f;
     // Option 1
     const float m_mu = float(1.5673e-3);
@@ -117,6 +125,10 @@ class ParticleSystem{
     float m_fluidVolume;
     float m_particleVolume;
     float m_uniform_mass;
+
+    // float m_g1;
+    // float m_g2;
+    float m_g3;
 
     Particle* m_particleArray;
     Particle* m_sortedParticleArray;
@@ -138,7 +150,6 @@ class ParticleSystem{
     void _setGLArray(uint numParticles);
     GLuint m_vbo;
     struct cudaGraphicsResource *m_cuda_vbo_resource;
-
 };
 
 #endif // __PARTICLEGRID_H__

@@ -4,11 +4,10 @@
 #include <cub/cub.cuh>
 #include <chrono>
 #include <cooperative_groups.h>
-#include "helper_math.h"
 
 #include "particlegrid.cuh"
 
-#define EPS 1e-10
+#define EPS 1e-12
 
 namespace cg = cooperative_groups;
 
@@ -47,6 +46,7 @@ __global__ void timeIntegrationD(Particle* particles,
     float3 pos = particles[index].position;
     float3 vel = particles[index].velocity;
 
+    //float3 velh = particles[index].velh;
     // if(index == 0){
     //     printf("pos before integrating: (%f,%f,%f)\n", pos.x, pos.y, pos.z);
     //     printf("vel before integrating: (%f,%f,%f)\n", vel.x, vel.y, vel.z);
@@ -54,21 +54,29 @@ __global__ void timeIntegrationD(Particle* particles,
     //     printf("-- viscosity:  (%f,%f,%f)\n", particles[index].viscosity.x, particles[index].viscosity.y, particles[index].viscosity.z);
     // }
     // equation (1)
-    float3 acceleration = gravity + particles[index].pressureGradient + particles[index].viscosity;
+    float3 accel = gravity + particles[index].pressureGradient + particles[index].viscosity;
 
-    // if(isnan(length(acceleration))){
-    //     printf("Acceleration - NaN: index [%u]\n", index);
-    // }
-    // if(index == 0){
-    //     printf("Acceleration = (%f,%f,%f).\n", acceleration.x, acceleration.y, acceleration.z);
-    // }
+    // float3 velh = vel + particles[index].acceleration * deltaTime/2.f;
+    // pos  += deltaTime * velh;
+    // vel  = velh + accel * deltaTime/2.f;
 
-    //TODO: write better integration scheme
-    vel += acceleration * deltaTime;
+    // // rosswog Strömer-Verlet
+    // pos += deltaTime * vel + accel/2.f * pow(deltaTime,2);
+    // vel += deltaTime*(particles[index].acceleration + accel)/2.f;
+
+    // implicit euler
+    vel += accel * deltaTime;
     pos += vel * deltaTime;
+
+    // if(pos.y < -5.f){
+    //     float middle = gridSize.x*cellSize.x/2;
+    //     pos = make_float3(middle,14.f,middle);
+    //     //vel = make_float3(0.f,0.f,0.f);
+    // }
 
     particles[index].position = pos;
     particles[index].velocity = vel;
+    particles[index].acceleration = accel;
 }
 
 
@@ -178,13 +186,25 @@ void reorderDataAndFindCellStartD(uint   *cellStart,        // output: cell star
 
 }
 
-// __host__ __device__ float kernelW(float r, float h){ 
+// ##### KERNELS #####
+
+// __host__ __device__ float kernelW(float r, float h){
+
+//     if(r >= h)
+//         return 0.f;
+
 //     float denom = static_cast<float>(64 * M_PI * pow(h, 9));
-//     float W = (315 / denom) * pow(pow(h, 2) - pow(r,2),3);
+//     float W = (315 / denom) * static_cast<float>(pow(pow(h, 2) - pow(r,2),3));
+
+//     if(isnan(W)){
+//         printf("W = %f, r = %f, h = %f.\n",W,r,h);
+//         assert(0); // Error: q negative or nan
+//         return -1;
+//     }
 //     return W;
 // }
 
-//from rosswog2015 or sim_10_sph.pdf
+// //from rosswog2015 or sim_10_sph.pdf
 __host__ __device__ float kernelW(float r, float h){ 
 
     float q = r/h;
@@ -192,15 +212,15 @@ __host__ __device__ float kernelW(float r, float h){
     if(q >= 2.0f)
         return 0.f;
 
-    float alpha = 1.f/float(4* M_PI* pow(h,3));
+    float alpha = 1.f/static_cast<float>(4* M_PI* pow(h,3));
 
     if(0.f <= q && q < 1.f){
 
-        return float(pow(2-q,3) - 4* pow(1-q,3));
+        return alpha*static_cast<float>(pow(2-q,3) - 4* pow(1-q,3));
     }
     else if(1.f <= q && q < 2.0f){
 
-        return float(pow(2-q,3));
+        return alpha*static_cast<float>(pow(2-q,3));
     }
     else{
         // printf("q = %f, r = %f, h = %f.\n",q,r,h);
@@ -209,9 +229,65 @@ __host__ __device__ float kernelW(float r, float h){
     }
 }
 
+
+// //from 2019-EG-SPH
+// __host__ __device__ float kernelW(float r, float h){ 
+
+//     float q = r/h;
+
+//     if(q > 1.0f)
+//         return 0.f;
+
+//     float sigma = 8.f/static_cast<float>(M_PI* pow(h,3));
+
+//     if(0.f <= q && q <= 0.5f){
+
+//         return sigma*static_cast<float>(6 * (pow(q,3)-pow(q,2)) + 1);
+//     }
+//     else if(0.5f < q && q <= 1.0f){
+
+//         return sigma*static_cast<float>(2 * pow(1-q,3));
+//     }
+//     else{
+//         printf("q = %f, r = %f, h = %f.\n",q,r,h);
+//         assert(0); // Error: q negative or nan
+//         return -1;
+//     }
+// }
+
+
+// //springel
+// __host__ __device__ float kernelW(float r, float h){ 
+
+//     float q = r/(2*h);
+
+//     if(q > 1.0f)
+//         return 0.f;
+
+//     float c = 8.f/static_cast<float>(M_PI);
+
+//     if(0.f <= q && q <= 1.f/2.f){
+
+//         return c*static_cast<float>(1 - 6 * q*q + 6 * q*q*q);
+//     }
+//     else if(1.f/2.f < q && q <= 1.0f){
+
+//         return c*static_cast<float>(2*pow(1-q,3));
+//     }
+//     else{
+//         // printf("q = %f, r = %f, h = %f.\n",q,r,h);
+//         assert(0); // Error: q negative or nan
+//         return -1;
+//     }
+// }
+
 // __host__ __device__ float3 kernelNablaW(float3 xij, float h){
 //     float r = length(xij);
-//     return(-45 / (M_PI * pow(smoothingRadius,6))) * pow(smoothingRadius - r,2) * xij/r;
+
+//     if(r >= h){
+//         return make_float3(0.f,0.f,0.f);
+//     }
+//     return(-45 / (M_PI * pow(h,6))) * pow(h - r,2) * xij/r;
 // }
 
 __host__ __device__ float3 kernelNablaW(float3 xij, float h){
@@ -223,15 +299,15 @@ __host__ __device__ float3 kernelNablaW(float3 xij, float h){
     if(q >= 2.0f)
         return make_float3(0.f,0.f,0.f);
 
-    float alpha = 1.f/(4* M_PI* pow(h,3));
+    float alpha = 1.f/static_cast<float>(4* M_PI* pow(h,3));
 
     if(0.f <= q && q < 1.f){
 
-        W = -3*pow(2-q,2) + 12* pow(1-q,2);
+        W = static_cast<float>(-3*pow(2-q,2) + 12* pow(1-q,2));
     }
     else if(1.f <= q && q < 2.0f){
 
-        W = -3*pow(2-q,2);
+        W = static_cast<float>(-3*pow(2-q,2));
     }
     else{
         assert(0); // Error: q negative
@@ -239,6 +315,35 @@ __host__ __device__ float3 kernelNablaW(float3 xij, float h){
 
     return alpha * W * xij/(r*h);
 }
+
+// // derivative from 2019-EG-SPH
+// __host__ __device__ float3 kernelNablaW(float3 xij, float h){
+
+//     float r = length(xij);
+//     float q = r/h;
+//     float W = 0.f;
+
+//     if(q > 1.0f)
+//         return make_float3(0.f,0.f,0.f);
+
+//     float sigma = 8.f/static_cast<float>(M_PI* pow(h,3));
+
+//     if(0.f <= q && q <= 0.5f){
+
+//         W = static_cast<float>(6*(3*pow(q,2) - 2*q));
+//     }
+//     else if(0.5f < q && q <= 1.0f){
+
+//         W = static_cast<float>(-6*pow(1-q,2));
+//     }
+//     else{
+//         assert(0); // Error: q negative
+//     }
+
+//     return sigma * W * xij/(r*h);
+// }
+
+// #### SPH EQUATIONS ####
 
 __device__ float sphDensity(uint* cellStart,
                 uint* cellEnd,
@@ -278,7 +383,7 @@ __device__ float sphDensity(uint* cellStart,
                                 float3 dVec = particle.position - neighborParticle.position;
                                 float dist = length(dVec);
 
-                                if(dist > cellSize.x || dist < EPS){
+                                if(dist > cellSize.x){
                                     //Dismiss
                                     continue;
                                 }
@@ -292,19 +397,19 @@ __device__ float sphDensity(uint* cellStart,
                                 float W = kernelW(dist,smoothingRadius);
 
                                 if(neighborParticle.isBoundary){
-                                    sumWBound += W;
+                                    sumWBound += neighborParticle.mass * W;
                                 }
                                 else{
                                     sumWFluid += W;
                                 }
                                 // if(originalIndex == 0){
 
-                                //     printf("DENSITY -- neighbor (%f,%f,%f). Distance: %f, density %f: Contributing %f\n", neighborParticle.position.x,neighborParticle.position.y,neighborParticle.position.z, dist, neighborParticle.density, particle.mass*W);
+                                //     printf("DENSITY -- neighbor (%f,%f,%f). Distance: %f, density %f: kernel W = %f -> Contributing %f\n", neighborParticle.position.x,neighborParticle.position.y,neighborParticle.position.z, dist, neighborParticle.density, W, particle.mass*W);
                                 //     if(neighborParticle.isBoundary){
                                 //         printf("-- BOUNDARY\n");
                                 //     }
                                 // }
-                                    
+                            
                             }
                         }
 
@@ -312,14 +417,10 @@ __device__ float sphDensity(uint* cellStart,
                 }
             }
         }
-        float density = (particle.mass * sumWFluid + gamma1 * particle.mass * sumWBound);
+        float density = (particle.mass * sumWFluid + gamma1 * sumWBound);
+        // float density = (particle.mass * sumWFluid + sumWBound);
+        // float density = (particle.mass * sumWFluid + particle.mass * sumWBound);
         // float density = particle.mass * sumWFluid;
-        // if(isnan(density)){
-        //     printf("DENSITY - NaN: index [%u]\n", originalIndex);
-        // }
-        // if(originalIndex == 0){
-        //     printf("Density = %f. \n",density);
-        // }
         return density;
 }
 
@@ -369,7 +470,7 @@ __device__ void sphPGradVisc(
                                 float3 xij = particle.position - neighborParticle.position;
                                 float r = length(xij);
 
-                                if(r > cellSize.x || r < EPS){
+                                if(r > cellSize.x){
                                     //Dismiss
                                     continue;
                                 }
@@ -378,7 +479,7 @@ __device__ void sphPGradVisc(
 
                                 if(neighborParticle.isBoundary){
 
-                                    sumNablaWb += NablaW;
+                                    sumNablaWb += neighborParticle.mass * NablaW;
                                 }
                                 else{
 
@@ -398,7 +499,8 @@ __device__ void sphPGradVisc(
             }
         }
         float3 gradientFluid = - particle.mass * sumFluid; 
-        float3 gradientBound = -(2*pi*particle.mass * gamma2) * sumNablaWb;
+        // float3 gradientBound = -(2*pi* particle.mass * gamma2) * sumNablaWb; // one boundary layer
+        float3 gradientBound = -(2*pi* gamma2) * sumNablaWb;
 
         pGradient = gradientFluid + gradientBound;
         viscosity = mu * 10 * viscosity;
@@ -558,7 +660,7 @@ ParticleSystem::ParticleSystem(uint numParticles, float3 hostWorldOrigin, uint3 
     gpuErrchk(cudaMemcpyToSymbol(restingDensity, &m_restingDensity, sizeof(float)));
     gpuErrchk(cudaMemcpyToSymbol(mu, &m_mu, sizeof(float)));
 
-    m_spacing = 0.8*h;
+    m_spacing = 0.5f*m_cellSize.x;
     m_numGridCells = hostGridSize.x * hostGridSize.y * hostGridSize.z;
 
     m_particleVolume = static_cast<float>(pow(m_spacing,3));
@@ -578,6 +680,7 @@ void ParticleSystem::_resetProperties(Particle *it){
     it->pressure = 0.f;
     it->pressureGradient = make_float3(0.f,0.f,0.f);
     it->viscosity = make_float3(0.f,0.f,0.f);
+    it->acceleration = make_float3(0.f,0.f,0.f);
 }
 
 void ParticleSystem::_initParticles(int numParticles)
@@ -587,7 +690,8 @@ void ParticleSystem::_initParticles(int numParticles)
 
     int width = (m_cellSize.x*m_gridSize.x/m_spacing) - 1;
     int height = numParticles/(width*width);
-    float3 offset = make_float3(m_spacing,m_spacing,m_spacing);//make_float3(m_cellSize.x,m_spacing,m_cellSize.z);
+    float3 offset = make_float3(m_spacing,m_spacing,m_spacing);
+    // float3 offset = make_float3(5*m_spacing,m_spacing,5*m_spacing);
     int count = 0;
     for(auto y = 0; y < height; y++){
         for(auto z = 0; z < width; z++){
@@ -631,13 +735,14 @@ void ParticleSystem::_initGammas(){
     float3 pos = p.position;
 
     float kernelSupport = m_cellSize.x; // assumes all dims to be the same (here: 2*h)
+    float maxExtend = m_spacing* ceil(kernelSupport/m_spacing);
 
     float sumWf = 0.f; //Fluid contribution
     float3 sumNablaWf = make_float3(0.f,0.f,0.f);
 
-    for(auto x = -kernelSupport; x <= kernelSupport; x+=m_spacing){
-        for(auto z = -kernelSupport; z <= kernelSupport; z+=m_spacing){
-            for(auto y = 0.f + m_spacing; y <= kernelSupport; y+=m_spacing){
+    for(auto x = -maxExtend; x <= maxExtend; x+=m_spacing){
+        for(auto z = -maxExtend; z <= maxExtend; z+=m_spacing){
+            for(auto y = 0.f + m_spacing; y <= maxExtend; y+=m_spacing){
 
                 float3 neighborPos = make_float3(x,y,z);
                 float3 xij = pos-neighborPos;
@@ -653,23 +758,42 @@ void ParticleSystem::_initGammas(){
     float sumWb = 0.f; //Boundary contribution
     float3 sumNablaWb = make_float3(0.f,0.f,0.f);
 
-    for(auto x = -kernelSupport; x <= kernelSupport; x+=m_spacing){
-        for(auto z = -kernelSupport; z <= kernelSupport; z+=m_spacing){
+    for(auto x = -maxExtend; x <= maxExtend; x+=m_spacing){
+        for(auto z = -maxExtend; z <= maxExtend; z+=m_spacing){
 
             float3 boundaryPos = make_float3(x,0.f,z); //one y layer of boundary particles
             float3 xij = pos-boundaryPos;
             float r = length(xij);
             if(r < EPS)
                 continue;
-
-            sumWb += kernelW(r, m_h);
+            
+            float add = kernelW(r, m_h);
+            sumWb += add;
             sumNablaWb += kernelNablaW(xij, m_h);
+            if(add > 0.f)
+                printf("Gamma Boundary contrib: relative pos (%f,%f,%f) - r = %f. Adding %f to sumWb (%f)\n",x-pos.x,0.f-pos.y,z-pos.z, r, add, sumWb);
+        }
+    }
+
+    float sumWbb = 0.f; //Gamma3: Boundary to boundary contrib used to calculate boundary masses
+    float3 bPos = make_float3(0.f,0.f,0.f);
+    for(auto x = -maxExtend; x <= maxExtend; x+=m_spacing){
+        for(auto z = -maxExtend; z <= maxExtend; z+=m_spacing){
+
+            float3 boundaryPos = make_float3(x,0.f,z); //one y layer of boundary particles
+            float3 xij = bPos-boundaryPos;
+            float r = length(xij);
+            if(r < EPS)
+                continue;
+            
+            float add = kernelW(r, m_h);
+            sumWbb += add;
         }
     }
 
     float g1 = ((1.f/m_particleVolume) - sumWf)/sumWb;
     float g2 = - dot(sumNablaWf, sumNablaWb)/dot(sumNablaWb,sumNablaWb);
-
+    m_g3 = g1 * m_particleVolume *sumWbb;
 
     printf("Checking Gammas:\n");
     float sumW = sumWf+g1*sumWb;
@@ -683,30 +807,32 @@ void ParticleSystem::_initGammas(){
 
 void ParticleSystem::_initBoundary(int extend, float spacing)
 {
+    std::vector<float3> boundaryPos;
 
     // Ground
-    Particle* it = m_particleArray + m_numParticles;
     int i = 0;
     for(auto x = 0; x < extend; x++){
         for(auto z = 0; z < extend; z++){
-            i++;
-            it->position = m_spacing*make_float3(x, 0.f, z);
-            //printf("Boundary particle (%f,%f,%f) added.\n",it->position.x,0.f,it->position.z);
-            it->mass = m_uniform_mass;
-            it->isBoundary = true;
-            it++;
-        }
+            // for(auto y = 0; y < 4; y++){
+                auto pos =  m_spacing*make_float3(x, 0.f, z);
+                boundaryPos.push_back(pos);
+                i++;
+                // it->position = m_spacing*make_float3(x, 0.f, z);
+                // //printf("Boundary particle (%f,%f,%f) added.\n",it->position.x,0.f,it->position.z);
+                // it->mass = m_uniform_mass;
+                // it->isBoundary = true;
+                // it++;
+            // }
+        }  
     }
-
+    
     // Wall 1 (back)
     for(auto x = 0; x < extend; x++){
         for(auto y = 0; y < extend; y++){
             // printf("Boundary particle (%f,%f,%f) added.\n",x,y,z);
             i++;
-            it->position = m_spacing * make_float3(x, y + 1, 0.f);
-            it->mass = m_uniform_mass;
-            it->isBoundary = true;
-            it++;
+            auto pos = m_spacing * make_float3(x, y + 1, 0.f);
+            boundaryPos.push_back(pos);
         }
     }
 
@@ -715,10 +841,8 @@ void ParticleSystem::_initBoundary(int extend, float spacing)
         for(auto y = 0; y < extend; y++){
             // printf("Boundary particle (%f,%f,%f) added.\n",x,y,z);
             i++;
-            it->position = m_spacing * make_float3(x, y + 1, extend - 1);
-            it->mass = m_uniform_mass;
-            it->isBoundary = true;
-            it++;
+            auto pos = m_spacing * make_float3(x, y + 1, extend - 1);
+            boundaryPos.push_back(pos);
         }
     }
 
@@ -727,10 +851,8 @@ void ParticleSystem::_initBoundary(int extend, float spacing)
         for(auto z = 0; z < extend; z++){
             // printf("Boundary particle (%f,%f,%f) added.\n",x,y,z);
             i++;
-            it->position = m_spacing * make_float3(0.f, y + 1, z);
-            it->mass = m_uniform_mass;
-            it->isBoundary = true;
-            it++;
+            auto pos = m_spacing * make_float3(0.f, y + 1, z);
+            boundaryPos.push_back(pos);
         }
     }
 
@@ -739,12 +861,40 @@ void ParticleSystem::_initBoundary(int extend, float spacing)
         for(auto z = 0; z < extend; z++){
             // printf("Boundary particle (%f,%f,%f) added.\n",x,y,z);
             i++;
-            it->position = m_spacing * make_float3(extend - 1, y + 1, z);
-            it->mass = m_uniform_mass;
-            it->isBoundary = true;
-            it++;
+            auto pos = m_spacing * make_float3(extend - 1, y + 1, z);
+            boundaryPos.push_back(pos);
         }
     }
+
+    int bsize = boundaryPos.size();
+    // Insert into particle array
+    for(int i = 0; i < m_numBoundary; i++){
+
+        auto pos = boundaryPos[i];
+        m_particleArray[i + m_numParticles].position = pos;
+        //printf("Boundary particle (%f,%f,%f) added.\n",it->position.x,0.f,it->position.z);
+
+        //Calculate Mass for boundary
+        // float sumWbb = 0.0f;
+        // for(int j = 0; j < m_numBoundary; j++){
+        //     if(i == j)
+        //         continue;
+
+        //     float3 neighborBoundaryPos = boundaryPos[j];
+        //     float r = length(neighborBoundaryPos - pos);
+        //     if(r > m_cellSize.x)
+        //         continue;
+        //     float add = kernelW(r, m_h);
+        //     sumWbb += add;
+        // }
+        
+        // float boundaryMass = m_restingDensity * (m_g3/sumWbb);
+        float boundaryMass = m_uniform_mass;
+
+        m_particleArray[i + m_numParticles].mass = boundaryMass;
+        m_particleArray[i + m_numParticles].isBoundary = true;
+    }
+
 
     
     printf("%u boundary particles added!\n",i);
@@ -900,8 +1050,8 @@ void ParticleSystem::calcSph(Particle *particleArray, //write new properties to 
         gpuErrchk( cudaDeviceSynchronize());
 
         auto duration = std::chrono::steady_clock ::now() - start;
-        std::cout << "calcSph(Density): \t Kernel took "
-        << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
+        // std::cout << "calcSph(Density): \t Kernel took "
+        // << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
 
         start = std::chrono::steady_clock ::now();
         // calculate pressure gradient and viscosity
@@ -914,8 +1064,8 @@ void ParticleSystem::calcSph(Particle *particleArray, //write new properties to 
         gpuErrchk( cudaPeekAtLastError());
         gpuErrchk( cudaDeviceSynchronize());
         duration = std::chrono::steady_clock ::now() - start;
-        std::cout << "calcSph(PGradVisc): \t Kernel took "
-        << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
+        // std::cout << "calcSph(PGradVisc): \t Kernel took "
+        // << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
 
     }
 
@@ -929,15 +1079,15 @@ void ParticleSystem::gatherPositions(float4* positions, Particle* particleArray,
 
 void ParticleSystem::update(float deltaTime)
 {
-    std::cout<<"---------------\n";
+    // std::cout<<"---------------\n";
     auto start = std::chrono::steady_clock ::now();
 
     calcHash(m_dGridParticleHash, m_dGridParticleIndex, m_particleArray, m_numAllParticles);
     gpuErrchk( cudaDeviceSynchronize());
 
     auto duration = std::chrono::steady_clock ::now() - start;
-    std::cout << "calcHash: \t\t Kernel took "
-    << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
+    // std::cout << "calcHash: \t\t Kernel took "
+    // << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
     
     
     // std::cout<<"------------\n";
@@ -953,8 +1103,8 @@ void ParticleSystem::update(float deltaTime)
     gpuErrchk( cudaDeviceSynchronize());
 
     duration = std::chrono::steady_clock ::now() - start;
-    std::cout << "sortParticles: \t\t Kernel took "
-    << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
+    // std::cout << "sortParticles: \t\t Kernel took "
+    // << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
     
     // std::cout<<"------ HASHING ------\n";
     // for (int i = 0; i < 100; i++){
@@ -974,8 +1124,8 @@ void ParticleSystem::update(float deltaTime)
                                 m_numGridCells);
    gpuErrchk( cudaDeviceSynchronize());
     duration = std::chrono::steady_clock ::now() - start;
-    std::cout << "reorderAndFindCStart: \t Kernel took "
-    << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
+    // std::cout << "reorderAndFindCStart: \t Kernel took "
+    // << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
     
     // std::cout<<"------ REORDERING AND SORTING ------\n";
     // for (int i = 0; i < 100; i++){
@@ -1010,8 +1160,8 @@ void ParticleSystem::update(float deltaTime)
     // std::cout<<"======== AFTER TIME INTEGRATION =========\n"; 
     // dumpParticleInfo(0,1000);
     duration = std::chrono::steady_clock ::now() - start;
-    std::cout << "timeIntegration: \t Kernel took "
-    << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
+    // std::cout << "timeIntegration: \t Kernel took "
+    // << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
 
     //map m_positions to be used with cuda
     float4* m_positions;

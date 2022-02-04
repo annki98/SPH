@@ -5,18 +5,21 @@ constexpr int sphereSections = int(12);
 
 SPHMesh::SPHMesh(std::shared_ptr<State> state) : 
 timeSpeed(1.f),
-m_renderBoundaryParticles(false)
+m_renderBoundaryParticles(true),
+m_renderBoundaries(false),
+m_highlighted(0),
+m_printInfo(false)
 {
     m_state = state;
 
     // setup particle system
     float3 hostWorldOrigin = make_float3(0.f,0.f,0.f);
-    float h = 1.f/4.f;
+    float h = 1.f;
     m_hostGridSize = make_uint3(16,16,16); // must be power of 2
 
     m_psystem = std::make_unique<ParticleSystem>(numElements, hostWorldOrigin, m_hostGridSize, h);
 
-    m_cube = std::make_unique<Cube>(h * m_hostGridSize.x);
+    m_cube = std::make_unique<Cube>(m_psystem->getCellSize()/2 * m_hostGridSize.x);
 
     // m_psystem->update(0.01f);
     // gpuErrchk( cudaDeviceSynchronize()); 
@@ -32,9 +35,9 @@ m_renderBoundaryParticles(false)
 
     time = 0.f;
 
-    m_renderingMode = "Points";
-    m_sphereRadius = 3.0f;
-    m_renderBoundaries = true;
+    m_renderingMode = "Real Spheres";
+    m_sphereRadius = 6.0f;
+    m_highlighted = 2211;
 
     // Setup shaders for sphere rendering
     m_vertexSphereShader = std::make_shared<Shader>(std::string(SHADERPATH) + "/Sphere.vert");
@@ -238,8 +241,11 @@ void SPHMesh::updateParticles(float deltaTime){
     //     m_psystem->dumpParticleInfo(0,1);
     //     //m_psystem->checkNeighbors(0, numElements);
     // }
-    // gpuErrchk( cudaDeviceSynchronize());  
-    // m_psystem->dumpParticleInfo(0,1);
+    if(m_printInfo){
+        gpuErrchk( cudaDeviceSynchronize());  
+        m_psystem->dumpParticleInfo(m_highlighted,m_highlighted+1);
+    }
+    
     //m_psystem->checkNeighbors(0, m_psystem->numParticles());
 }
 
@@ -273,8 +279,12 @@ void SPHMesh::drawGUI()
     // Toggle whether to render boundary walls
     ImGui::Checkbox("Draw Boundaries", &m_renderBoundaries);
 
-    // Toggle whether to render boundary walls
+    // Toggle whether to render boundary particles
     ImGui::Checkbox("Draw Boundary Particles", &m_renderBoundaryParticles);
+
+    ImGui::InputInt("Highlight particle", &m_highlighted);
+
+    ImGui::Checkbox("Print Info", &m_printInfo);
 
     // Reset particle simulation
     if(ImGui::Button("Reset particles"))
@@ -314,26 +324,35 @@ void SPHMesh::draw()
         m_basicWithModelShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
         m_basicWithModelShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
 
-        glm::vec3 color(0.1f,0.4f,0.9f); // water color
-        m_basicWithModelShaderProgram->setVec3("color", color);
+        glm::vec3 waterColor(0.1f,0.4f,0.9f); // water color
+        //m_basicWithModelShaderProgram->setVec3("color", color);
 
         for (auto i = 0; i < numElements; i++)
         {
             float3 pos = m_psystem->getParticleArray()[i].position;
+            float density = m_psystem->getParticleArray()[i].density;
+            glm::vec3 color = (1.f - max(density - m_psystem->getRestingDensity(),0.f)/50.f ) * waterColor;
+            if(i == m_highlighted){
+                color.r = 1.f;
+            }
+            m_basicWithModelShaderProgram->setVec3("color",color);
             glm::mat4 modelMatrix = glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(pos.x, pos.y, pos.z)), glm::vec3(m_psystem->getSpacing() * m_sphereRadius));
             m_basicWithModelShaderProgram->setMat4("modelMatrix", modelMatrix);
             glDrawElements(GL_TRIANGLES, m_sphereIndices.size(), GL_UNSIGNED_INT, 0);
         }
 
         if (m_renderBoundaryParticles) {
-            color = glm::vec3(1.0f,1.0f,0.1f);
-            m_basicWithModelShaderProgram->setVec3("color", color);
             m_basicWithModelShaderProgram->use();
             m_basicWithModelShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
             m_basicWithModelShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
             for (auto i = numElements; i < m_psystem->numParticles(); i++)
             {
+                glm::vec3 color(1.0f,1.0f,0.1f);
                 float3 pos = m_psystem->getParticleArray()[i].position;
+                if(i == m_highlighted){
+                    color = glm::vec3(0.15f,1.f,0.15f);
+                }
+                m_basicWithModelShaderProgram->setVec3("color",color);
                 glm::mat4 modelMatrix = glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(pos.x, pos.y, pos.z)), glm::vec3(m_psystem->getSpacing() * m_sphereRadius));
                 m_basicWithModelShaderProgram->setMat4("modelMatrix", modelMatrix);
                 glDrawElements(GL_TRIANGLES, m_sphereIndices.size(), GL_UNSIGNED_INT, 0);
@@ -346,7 +365,7 @@ void SPHMesh::draw()
         m_basicWithModelShaderProgram->use();
         m_basicWithModelShaderProgram->setMat4("projectionMatrix", *m_state->getCamera()->getProjectionMatrix());
         m_basicWithModelShaderProgram->setMat4("viewMatrix", *m_state->getCamera()->getViewMatrix());
-        glm::vec3 offset = glm::vec3(m_hostGridSize.x, m_hostGridSize.y, m_hostGridSize.z) / 4.0f;
+        glm::vec3 offset = m_psystem->getCellSize() * glm::vec3(m_hostGridSize.x, m_hostGridSize.y, m_hostGridSize.z) / 2.0f;
         glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), offset);
         m_basicWithModelShaderProgram->setMat4("modelMatrix", modelMatrix);
         m_cube->draw();
