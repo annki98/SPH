@@ -1,6 +1,7 @@
 #include <iostream>
 #include <iomanip>
 #include <random>
+#include <cub/util_allocator.cuh>
 #include <cub/cub.cuh>
 #include <chrono>
 #include <cooperative_groups.h>
@@ -12,6 +13,8 @@
 #define EPS 1e-12
 
 namespace cg = cooperative_groups;
+
+cub::CachingDeviceAllocator  g_allocator(true);
 
 template<typename itT>
 void genRandomData(itT begin, itT end, int maxSize) {
@@ -160,7 +163,7 @@ __global__  void moveObjectD(Particle *particles, float deltaTime, float3 veloci
     float MAX = 1.5f*(cellSize.x * gridSize.x); // assumes equal dims
     float MIN = - (MAX - cellSize.x * gridSize.x);
     if(pos.x > MAX){
-        pos.x = MIN;
+        pos.x = MIN + (pos.x - MAX);
     }
 
     particles[index].position = pos;
@@ -1240,9 +1243,12 @@ void ParticleSystem::sortParticles(uint *dGridParticleHash, uint *dGridParticleI
     gpuErrchk( cub::DeviceRadixSort::SortPairs(tempStorage_d, tempStorageSize, dGridParticleHash,dSortedHash, dGridParticleIndex,dSortedIndex, numParticles));
 
     // Allocate temporary storage
-    gpuErrchk( cudaMalloc(&tempStorage_d, tempStorageSize));
+    CubDebugExit(g_allocator.DeviceAllocate(&tempStorage_d, tempStorageSize));
     // Run sorting operation
     gpuErrchk( cub::DeviceRadixSort::SortPairs(tempStorage_d, tempStorageSize, dGridParticleHash, dSortedHash, dGridParticleIndex, dSortedIndex, numParticles));
+
+    // Free temporary storage
+    CubDebugExit(g_allocator.DeviceFree(tempStorage_d));
 }
 
 
