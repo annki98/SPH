@@ -33,6 +33,7 @@ enum BoundaryMode
     BP_BOX,
     BP_GROUND,
     BP_MOVING,
+    BP_ROTATE,
     NUM_BMODES,
 };
 
@@ -89,7 +90,8 @@ class ParticleSystem{
                     float deltaTime,
                     float3 velocity,
                     int numFluidParticles,
-                    int numObjectParticles
+                    int numObjectParticles,
+                    BoundaryMode mode
                     );
 
     void update(float deltaTime);

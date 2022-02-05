@@ -78,7 +78,7 @@ __global__ void timeIntegrationD(Particle* particles,
     pos += vel * deltaTime;
 
 
-    if(mode == REFLECT || mode == BP_MOVING){
+    if(mode == REFLECT || mode == BP_MOVING || mode == BP_ROTATE){
         // Reflection boundary handling
         float MIN = 0.0f;
         float MAX = cellSize.x * gridSize.x; // assumes equal dims
@@ -147,7 +147,7 @@ __global__ void timeIntegrationD(Particle* particles,
 }
 
 
-__global__  void moveObjectD(Particle *particles, float deltaTime, float3 velocity, int numFluidParticles, int numObjectParticles){
+__global__  void moveObjectD(Particle *particles, float deltaTime, float3 velocity, int numFluidParticles, int numObjectParticles, BoundaryMode mode){
 
     uint index = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -158,13 +158,25 @@ __global__  void moveObjectD(Particle *particles, float deltaTime, float3 veloci
 
     float3 pos = particles[index].position;
     float3 vel = velocity;
-    pos += deltaTime * vel;
 
-    float MAX = 1.5f*(cellSize.x * gridSize.x); // assumes equal dims
-    float MIN = - (MAX - cellSize.x * gridSize.x);
-    if(pos.x > MAX){
-        pos.x = MIN + (pos.x - MAX);
+    if(mode == BP_MOVING){
+        pos += deltaTime * vel;
+
+        float MAX = 1.5f*(cellSize.x * gridSize.x); // assumes equal dims
+        float MIN = - (MAX - cellSize.x * gridSize.x);
+        if(pos.x > MAX){
+            pos.x = MIN + (pos.x - MAX);
+        }
     }
+    else if(mode == BP_ROTATE)
+    {
+        float3 offset = make_float3(cellSize.x*gridSize.x, 0.f, cellSize.z*gridSize.z)/2.f;
+        float theta = 0.1f*vel.x * deltaTime;
+        float3 rotatePos = particles[index].position - offset;
+        pos.x = cos(theta)*rotatePos.x + sin(theta) * rotatePos.z + offset.x;
+        pos.z  = -sin(theta)*rotatePos.x + cos(theta) * rotatePos.z + offset.z;
+    }
+    
 
     particles[index].position = pos;
     particles[index].velocity = vel;
@@ -764,7 +776,8 @@ ParticleSystem::ParticleSystem(uint numParticles, float3 hostWorldOrigin, uint3 
     m_uniform_mass(0.f),
     m_h(h),
     objVel(make_float3(5.f,0.f,0.f)),
-    m_boundaryMode(REFLECT)
+    m_boundaryMode(REFLECT),
+    m_partConstellation("Four Pillars")
 {
     gpuErrchk(cudaMemcpyToSymbol(worldOrigin, &m_worldOrigin, sizeof(float3)));
     gpuErrchk(cudaMemcpyToSymbol(smoothingRadius, &h, sizeof(float)));
@@ -807,11 +820,55 @@ void ParticleSystem::_initParticles(int numParticles)
     
     Particle* it = m_particleArray;
 
-    m_partConstellation = "Four Pillars";
+    // m_partConstellation = "Four Pillars";
 
     if(strcmp(m_partConstellation, "Sphere") == 0)
     {
 
+    }
+    else if(strcmp(m_partConstellation, "Swoosh") == 0)
+    {
+        // Configuration with initial velocity
+        int width = (m_cellSize.x*m_gridSize.x/m_spacing) - 1;
+        int length = 0.75f*width;
+        int height = numParticles/(width*length);
+
+        float3 offset = make_float3(m_spacing,m_spacing,m_spacing);
+        if(m_boundaryMode == REFLECT || m_boundaryMode == BP_MOVING || m_boundaryMode == BP_ROTATE){
+
+            offset = make_float3(0.001f,0.001f,m_spacing);
+        }
+        
+        // float3 offset = make_float3(5*m_spacing,m_spacing,5*m_spacing);
+        int count = 0;
+        for(auto y = 0; y < height; y++){
+            for(auto z = 0; z < width; z++){
+                for(auto x = 0; x < length; x++){
+                    
+                    it->position = m_spacing*make_float3(x,y,z) + offset;
+                    _resetProperties(it);
+                    it->velocity = make_float3(10.f,-5.f,0.f);
+                    it->mass = m_uniform_mass;
+                    it->isBoundary = false;
+                    it++;
+                    count++;
+                }
+            }
+        }
+
+        int rest = numParticles - (height*width*length);
+        int y = height;
+        for(auto i = 0; i < rest; i++){
+            int x = (i%length);
+            int z = (i/length);
+            it->position = m_spacing*make_float3(x,y,z) + offset;
+            _resetProperties(it);
+            it->velocity = make_float3(10.f,-5.f,0.f);
+            it->mass = m_uniform_mass;
+            it->isBoundary = false;
+            it++;
+            count++;
+        }
     }
     //4 groups of particles at each corner of the volume
     else if (strcmp(m_partConstellation, "Four Pillars") == 0)
@@ -1089,12 +1146,28 @@ void ParticleSystem::_initBoundary(int extend, float spacing, BoundaryMode bMode
                 for(auto y = 0; y < extend; y++){
                     for(auto z = 0; z < extend; z++){
 
-                        auto pos =  m_spacing*make_float3(x, y, z) + offset; //back side         
+                        auto pos =  m_spacing*make_float3(x, y, z) + offset;     
                         boundaryPos.push_back(pos);
                         i++;  
                     }
                 }
             }
+    }
+    else if(bMode == BP_ROTATE){
+        int width = 5; // must be the same as in init
+
+         float3 offset = make_float3(m_cellSize.x*m_gridSize.x - width, 0.f, 0.f)/2.f;
+
+          for(auto x = 0; x < width; x++){
+                for(auto y = 0; y < width; y++){
+                    for(auto z = 0; z < extend; z++){
+
+                        auto pos =  m_spacing*make_float3(x, y, z) + offset;
+                        boundaryPos.push_back(pos);
+                        i++; 
+                    }
+                }
+          }
     }
     
     // Insert into particle array
@@ -1164,6 +1237,11 @@ void ParticleSystem::_init(int numParticles)
 
         // m_numBoundary = static_cast<uint>(2*pow(bExtend, 2) + (depth-2)*4*(bExtend-1)); hollow object
         m_numBoundary = static_cast<uint>(depth*pow(bExtend, 2));
+    }
+    else if(m_boundaryMode == BP_ROTATE){
+        bExtend = static_cast<int>(1.0f * m_gridSize.x * m_cellSize.x / m_spacing) + 1;
+        int width = 5; // must be the same as in initBoundary
+        m_numBoundary = static_cast<uint>(bExtend * width *width);
     }
 
     m_numAllParticles = numParticles + m_numBoundary;
@@ -1294,7 +1372,7 @@ void ParticleSystem::calcSph(Particle *particleArray, //write new properties to 
         uint numThreads, numBlocks;
         computeGridSize(numParticles, 64, numBlocks, numThreads);
 
-        auto start = std::chrono::steady_clock ::now();
+        // auto start = std::chrono::steady_clock ::now();
         //calculate density and pressure first
         calcDensityPressureD<<< numBlocks, numThreads >>>(sortedParticles,
                                                             cellStart,
@@ -1302,13 +1380,13 @@ void ParticleSystem::calcSph(Particle *particleArray, //write new properties to 
                                                             gridParticleIndex,
                                                             numParticles);
         gpuErrchk( cudaPeekAtLastError());
-        gpuErrchk( cudaDeviceSynchronize());
+        // gpuErrchk( cudaDeviceSynchronize());
 
-        auto duration = std::chrono::steady_clock ::now() - start;
+        // auto duration = std::chrono::steady_clock ::now() - start;
         // std::cout << "calcSph(Density): \t Kernel took "
         // << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
 
-        start = std::chrono::steady_clock ::now();
+        // start = std::chrono::steady_clock ::now();
         // calculate pressure gradient and viscosity
         calcSphD<<< numBlocks, numThreads >>>(particleArray,
                                               sortedParticles,
@@ -1317,8 +1395,8 @@ void ParticleSystem::calcSph(Particle *particleArray, //write new properties to 
                                               gridParticleIndex,
                                               numParticles);
         gpuErrchk( cudaPeekAtLastError());
-        gpuErrchk( cudaDeviceSynchronize());
-        duration = std::chrono::steady_clock ::now() - start;
+        // gpuErrchk( cudaDeviceSynchronize());
+        // duration = std::chrono::steady_clock ::now() - start;
         // std::cout << "calcSph(PGradVisc): \t Kernel took "
         // << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
 
@@ -1332,12 +1410,12 @@ void ParticleSystem::gatherPositions(float4* positions, Particle* particleArray,
     gatherPositionsD<<< numBlocks, numThreads >>>(positions, particleArray, numParticles);
 }
 
-void ParticleSystem::moveObject(Particle *particleArray, float deltaTime, float3 velocity, int numFluidParticles, int numObjectParticles){
+void ParticleSystem::moveObject(Particle *particleArray, float deltaTime, float3 velocity, int numFluidParticles, int numObjectParticles, BoundaryMode mode){
     // thread per particle
     uint numThreads, numBlocks;
     computeGridSize(numObjectParticles, 64, numBlocks, numThreads);
 
-    moveObjectD<<< numBlocks, numThreads >>>(particleArray, deltaTime, velocity, numFluidParticles, numObjectParticles);
+    moveObjectD<<< numBlocks, numThreads >>>(particleArray, deltaTime, velocity, numFluidParticles, numObjectParticles, mode);
 }
 
 
@@ -1347,9 +1425,9 @@ void ParticleSystem::update(float deltaTime)
     auto start = std::chrono::steady_clock ::now();
 
     calcHash(m_dGridParticleHash, m_dGridParticleIndex, m_particleArray, m_numAllParticles);
-    gpuErrchk( cudaDeviceSynchronize());
+    // gpuErrchk( cudaDeviceSynchronize());
 
-    auto duration = std::chrono::steady_clock ::now() - start;
+    // auto duration = std::chrono::steady_clock ::now() - start;
     // std::cout << "calcHash: \t\t Kernel took "
     // << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
     
@@ -1361,12 +1439,12 @@ void ParticleSystem::update(float deltaTime)
     //     <<"Hash: "<<m_dGridParticleHash[i]<<
     //     ", Index: "<<m_dGridParticleIndex[i]<<std::endl;
     // }
-    start = std::chrono::steady_clock ::now();
+    // start = std::chrono::steady_clock ::now();
 
     sortParticles(m_dGridParticleHash, m_dGridParticleIndex, m_dSortedParticleHash, m_dSortedParticleIndex, m_numAllParticles);
-    gpuErrchk( cudaDeviceSynchronize());
+    // gpuErrchk( cudaDeviceSynchronize());
 
-    duration = std::chrono::steady_clock ::now() - start;
+    // duration = std::chrono::steady_clock ::now() - start;
     // std::cout << "sortParticles: \t\t Kernel took "
     // << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
     
@@ -1376,7 +1454,7 @@ void ParticleSystem::update(float deltaTime)
     //     std::cout << "Particle "<<p.x<<", "<<p.y<<", "<<p.z
     //                 <<", "<<"Hash: "<<m_dSortedParticleHash[i]<<", Index: "<<m_dSortedParticleIndex[i]<<std::endl;
     // }
-    start = std::chrono::steady_clock ::now();
+    // start = std::chrono::steady_clock ::now();
 
     reorderDataAndFindCellStart(m_cellStart,
                                 m_cellEnd,
@@ -1386,8 +1464,8 @@ void ParticleSystem::update(float deltaTime)
                                 m_particleArray,
                                 m_numAllParticles,
                                 m_numGridCells);
-   gpuErrchk( cudaDeviceSynchronize());
-    duration = std::chrono::steady_clock ::now() - start;
+    // gpuErrchk( cudaDeviceSynchronize());
+    // duration = std::chrono::steady_clock ::now() - start;
     // std::cout << "reorderAndFindCStart: \t Kernel took "
     // << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
     
@@ -1410,26 +1488,26 @@ void ParticleSystem::update(float deltaTime)
             m_cellEnd, 
             m_dSortedParticleIndex, 
             m_numAllParticles);
-    gpuErrchk( cudaDeviceSynchronize());   
+    // gpuErrchk( cudaDeviceSynchronize());   
     // dumpParticleInfo(0,3);
 
     // duration = std::chrono::steady_clock ::now() - start;
     // std::cout << "calcSph: \t\t Kernel took "
     // << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
 
-    start = std::chrono::steady_clock ::now();
+    // start = std::chrono::steady_clock ::now();
 
     timeIntegration(m_particleArray, deltaTime, m_numParticles);    
-    gpuErrchk( cudaDeviceSynchronize());  
+    // gpuErrchk( cudaDeviceSynchronize());  
     // std::cout<<"======== AFTER TIME INTEGRATION =========\n"; 
     // dumpParticleInfo(0,1000);
-    duration = std::chrono::steady_clock ::now() - start;
+    // duration = std::chrono::steady_clock ::now() - start;
     // std::cout << "timeIntegration: \t Kernel took "
     // << std::chrono::duration_cast<std::chrono::milliseconds>( duration ).count() << "ms" << std::endl;
 
-    if(m_boundaryMode == BP_MOVING){
-        moveObject(m_particleArray, deltaTime, objVel, m_numParticles, m_numBoundary);
-        gpuErrchk( cudaDeviceSynchronize()); 
+    if(m_boundaryMode == BP_MOVING || m_boundaryMode == BP_ROTATE){
+        moveObject(m_particleArray, deltaTime, objVel, m_numParticles, m_numBoundary, m_boundaryMode);
+        // gpuErrchk( cudaDeviceSynchronize()); 
     }
 
 
@@ -1558,6 +1636,7 @@ void ParticleSystem::dumpParticleInfo(uint start, uint end){
 void ParticleSystem::resetParticles(uint numParticles, BoundaryMode bMode)
 {
     gpuErrchk(cudaDeviceSynchronize());
+    _free();
     m_boundaryMode = bMode;
     _init(numParticles);
 }
@@ -1565,6 +1644,7 @@ void ParticleSystem::resetParticles(uint numParticles, BoundaryMode bMode)
 void ParticleSystem::resetParticles(uint numParticles)
 {
     gpuErrchk(cudaDeviceSynchronize());
+    _free();
     _init(numParticles);
 }
 
@@ -1572,10 +1652,11 @@ void ParticleSystem::drawGUIConstellation()
 {
     ImGui::Begin("SPH Constellation");
 
-    m_partConstellation = "Default";
+    // m_partConstellation = "Default";
 
     //Combo Box to select particle array constellation
-    const char* constellations[] = { "Default", "Sphere", "Four Pillars" };
+    // const char* constellations[] = { "Default", "Sphere", "Four Pillars" };
+    const char* constellations[] = { "Default", "Swoosh", "Four Pillars" };
 
     if (ImGui::BeginCombo("##combo", m_partConstellation))
     {

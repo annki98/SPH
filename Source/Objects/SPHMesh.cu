@@ -298,7 +298,7 @@ void SPHMesh::drawGUI()
         m_psystem->resetParticles(numElements, nextMode);
     }
     
-    if(m_psystem->boundaryMode() == BP_MOVING){
+    if(m_psystem->boundaryMode() == BP_MOVING || m_psystem->boundaryMode() == BP_ROTATE ){
         ImGui::SliderFloat("Object Speed", &(m_psystem->objVel.x), 0.0f, 50.0f);
     }
     

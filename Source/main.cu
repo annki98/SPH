@@ -210,7 +210,7 @@ int main()
     //glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sceneFBO->getColorAttachment(0), 0);
 
     // move camera to a position where mesh is visible
-    state->getCamera()->setCameraPosition(glm::vec3(2.f, 4.0f, 6.0f));
+    state->getCamera()->setCameraPosition(glm::vec3(16.f, 12.0f, 32.0f));
 
     while(!glfwWindowShouldClose(window))
     {
