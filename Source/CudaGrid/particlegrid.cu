@@ -325,7 +325,7 @@ __host__ __device__ float kernelW(float r, float h){
         return alpha*static_cast<float>(pow(2-q,3));
     }
     else{
-        printf("q = %f, r = %f, h = %f.\n",q,r,h);
+        // printf("q = %f, r = %f, h = %f.\n",q,r,h);
         assert(0); // Error: q negative or nan
         return -1;
     }
@@ -1370,7 +1370,7 @@ void ParticleSystem::calcSph(Particle *particleArray, //write new properties to 
 
         // thread per particle
         uint numThreads, numBlocks;
-        computeGridSize(numParticles, 64, numBlocks, numThreads);
+        computeGridSize(numParticles, 32, numBlocks, numThreads);
 
         // auto start = std::chrono::steady_clock ::now();
         //calculate density and pressure first
@@ -1405,7 +1405,7 @@ void ParticleSystem::calcSph(Particle *particleArray, //write new properties to 
 void ParticleSystem::gatherPositions(float4* positions, Particle* particleArray, uint numParticles){
     // thread per particle
     uint numThreads, numBlocks;
-    computeGridSize(numParticles, 64, numBlocks, numThreads);
+    computeGridSize(numParticles, 32, numBlocks, numThreads);
 
     gatherPositionsD<<< numBlocks, numThreads >>>(positions, particleArray, numParticles);
 }
@@ -1413,7 +1413,7 @@ void ParticleSystem::gatherPositions(float4* positions, Particle* particleArray,
 void ParticleSystem::moveObject(Particle *particleArray, float deltaTime, float3 velocity, int numFluidParticles, int numObjectParticles, BoundaryMode mode){
     // thread per particle
     uint numThreads, numBlocks;
-    computeGridSize(numObjectParticles, 64, numBlocks, numThreads);
+    computeGridSize(numObjectParticles, 32, numBlocks, numThreads);
 
     moveObjectD<<< numBlocks, numThreads >>>(particleArray, deltaTime, velocity, numFluidParticles, numObjectParticles, mode);
 }
