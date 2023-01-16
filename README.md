@@ -1,3 +1,8 @@
+# SPH mit CUDA
+
+<img src="/images/Center_Splash.png" alt="splash" height="250"/> <img src="/images/Driveby.png" alt="driveby" height="250"/> <img src="/images/Overflow.png" alt="overflow" height="250"/>
+
+
 # Setup
 
 1. Im Ordner Dependencies jeweils cmake mit `cmake .` konfigurieren und anschießend mit `cmake --build` im gleichen Ordner bauen. Das ganze für glm und glfw. Optional lässt sich das auch in VS Code durchführen.
