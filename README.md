@@ -1,6 +1,6 @@
 # SPH mit CUDA
 
-<img src="/images/Center_Splash.png" alt="splash" height="250"/> <img src="/images/Driveby.png" alt="driveby" height="250"/> <img src="/images/Overflow.png" alt="overflow" height="250"/>
+<img src="/images/Center_Splash.png" alt="splash" height="250"/> <img src="/images/Driveby.png" alt="driveby" height="250"/> <img src="/images/Overflow.png" alt="overflow" height="250"/> <img src="/images/Full_Spin.png" alt="spin" height="250"/>
 
 
 # Setup
